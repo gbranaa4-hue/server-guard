@@ -105,6 +105,40 @@ All of this ran live against this actual machine, not synthetic data:
 - **Persistence**: readings and predictions both land in SQLite
   (`server_guard.db`) across ticks.
 
+## Where thresholds actually come from
+
+Not every channel should get its threshold the same way, and pretending
+otherwise would produce numbers that *look* measured without actually
+meaning anything. `baseline_measure.py` splits channels into three kinds:
+
+- **Workload-dependent** (`sys.cpu_pct`, `sys.mem_pct`, `process_count`,
+  connection counts, bandwidth, disk I/O throughput) -- these genuinely
+  vary by machine, so a generic guessed number is just a guess. Run
+  `python baseline_measure.py --duration 300` to measure a real window
+  on the target machine; it writes `config/measured_baseline.json` with
+  real mean/std/min/max/p95/p99 per channel, and `build_thresholds()`
+  picks it up automatically from then on, deriving `stress_high = mean +
+  2*std`, `critical_high = mean + 4*std`. Falls back to the generic
+  default rule if no baseline has been measured yet.
+- **Universal safety bands** (disk free %) -- "5% free is critical" is a
+  hard engineering fact independent of any one server's history. A short
+  baseline window barely moves this channel, so computing mean+std from
+  it would just re-derive an arbitrary number while *looking* measured.
+  Left as a fixed default on purpose.
+- **Zero-tolerance tripwires** (an unexpected listening port, a version
+  mismatch, a failed check) -- the correct threshold is "any occurrence
+  at all," by definition. There's no baseline for "how often should a
+  backdoor normally open." Left as fixed logic on purpose.
+
+Real measured example from this machine (`net.sent_mb_per_s`, 5 samples
+over 25s): mean=0.0567, std=0.051 -> naive `mean + 2*std` would put the
+threshold at 0.16, which is basically noise. `_range_from_measurement()`
+applies a floor (`max(std, mean*0.1, 1.0)`) so a channel that happened to
+be quiet during the measurement window doesn't produce a hair-trigger
+threshold -- a real failure mode caught while building this, not a
+hypothetical. Regression tests for both the derivation and the floor:
+`tests/test_thresholds_config.py`.
+
 ## A real bug this caught, and the fix
 
 sensor-duo's `classify()` uses `<=`/`>=` at threshold boundaries. Setting
@@ -115,13 +149,14 @@ came back CRITICAL). Fixed by moving boundaries to the midpoint between
 good and bad (`critical_low=0.5`) instead of the good value itself.
 Regression test: `tests/test_thresholds_config.py`.
 
-## Defaults are provisional, not measured
+## Defaults are provisional until measured
 
-Every `Range` in `config/thresholds_config.py` is a reasonable generic
-small-office-server default, explicitly not tuned against real
-veterinary-hospital server behavior -- there's no real data for that yet.
-Replace them once real data is flowing; that's a config change, not a
-code change.
+The generic small-office-server numbers in `config/thresholds_config.py`
+are the fallback for workload-dependent channels *before*
+`baseline_measure.py` has been run on the target machine, and the
+permanent choice for the universal/tripwire channels described above.
+Once real vet-hospital-server data is flowing, run the baseline
+measurement there; no code changes needed either way.
 
 ## Grafana HUD
 
@@ -159,10 +194,34 @@ higher-risk decision that belongs with a human, not this loop.
 ## Usage
 
 ```bash
-pip install sensor-duo   # already installed here; needed on any new machine
-python guard.py --learn-baseline --max-ticks 1   # first run only: record expected ports
-python guard.py --interval 5                      # then run continuously
+pip install sensor-duo                             # already installed here; needed on any new machine
+python guard.py --learn-baseline --max-ticks 1      # first run only: record expected listening ports
+python baseline_measure.py --duration 300           # first run only: measure real workload thresholds
+python guard.py --interval 5                        # then run continuously
 ```
+
+## Grafana
+
+`grafana_dashboard.json` was generated against this machine's real
+channel set (see Grafana HUD section above). This same Grafana instance
+already has the `frser-sqlite-datasource` plugin installed and a working
+datasource for a sibling project (pond-health), so the connection shape
+is proven, not guessed. Add a datasource named `server-guard-sqlite`
+with:
+
+```
+path:        C:\Users\gbran\OneDrive\Documents\server-guard\server_guard.db
+pathOptions: _pragma=query_only(1)
+pathPrefix:  file:
+```
+
+then Dashboards -> Import -> upload `grafana_dashboard.json`, mapping
+its `${DS_SQLITE}` input to that datasource. (File-based provisioning --
+dropping both configs straight into Grafana's `conf/provisioning/` so no
+manual UI steps are needed at all -- was attempted but that directory is
+under `C:\Program Files\` and needs admin rights this account doesn't
+have; the manual add-datasource-then-import path above needs no
+elevation.)
 
 ## If this ever goes public
 

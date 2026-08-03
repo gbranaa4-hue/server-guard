@@ -63,6 +63,74 @@ connection table):
 This is a local, zero-dependency tripwire on top of what `psutil` can
 already see -- it does not replace a real IDS/IPS and isn't trying to.
 
+### What it actually catches, and what it doesn't (measured, not assumed)
+
+Two live tests, run against the real background `guard.py` process:
+
+- **Multi-port burst**: opened 4 real listening sockets at once, held 12s.
+  Caught immediately (`unexpected_listening_ports=4.0`, critical), and
+  after closing them the spiking detector lingered at "stress" for two
+  more ticks before decaying to ideal -- the neuron-memory behavior is
+  real, not just a description.
+- **Sub-interval blind spot**: opened and closed a socket in 1.5s, under
+  the 5s poll interval. Checked three ticks after -- `0.0` every time.
+  **Completely missed.** This is the real, structural limit of
+  poll-based detection: anything that opens and closes faster than the
+  poll interval doesn't exist to this tripwire.
+
+That miss is also the honest boundary against a real IDS/IPS
+(Suricata/Snort/Zeek-class systems): those sniff every packet on the
+wire in real time, so they don't have a poll-interval blind spot, and
+they see traffic *content* -- exploit signatures, protocol anomalies,
+scans probing already-closed ports, C2 beacon shapes -- none of which
+this tripwire has any visibility into. It only ever knows one thing: is
+a new socket listening that wasn't there at baseline. That's a real,
+useful, zero-dependency signal a network-level IDS elsewhere on the wire
+might not directly attribute to this specific host, but it's a
+complement to a real IDS, not a substitute for one.
+
+### Closing part of that gap: real packet-level capture
+
+`collectors/packet_capture.py` sniffs actual NIC traffic via scapy/Npcap
+instead of polling state, which removes the poll-interval blind spot for
+one specific thing: **inbound connection attempts**. It adds:
+
+- `pkt.syn_packets` -- total SYN volume (any direction), a workload signal
+- `pkt.unexpected_port_probes` / `pkt.scanning_src_ips` -- **inbound**
+  SYNs to a port we're not listening on, and how many distinct outside
+  IPs sent them. This is a genuinely different capability from the
+  socket-table tripwire above: that one only ever sees OUR OWN listening
+  ports, so it has zero visibility into someone scanning us. This does.
+
+Requires [Npcap](https://npcap.com) installed ("WinPcap API-compatible
+mode") -- a real kernel driver, not something this process installs
+itself. If it's missing, `PacketCaptureCollector`'s construction raises
+`PacketCaptureUnavailable`, `guard.py` catches that and skips it, and
+everything else keeps working -- no code change needed once Npcap is
+installed later, it just starts contributing.
+
+**A real bug found while verifying this against genuine traffic, not
+synthetic**: the first version counted every SYN as a possible scan
+regardless of direction, so this machine's own outbound connections
+(e.g. browsing to a remote host on port 443, a port nothing here
+listens on) would have been miscounted as someone probing us -- the
+tool would have flooded itself with false positives from normal
+internet use. Caught by testing against real ambient traffic (a
+same-machine loopback test wasn't sufficient -- see below), fixed by
+only evaluating SYNs addressed *to* one of this host's own IPs.
+Regression tests: `tests/test_packet_capture.py`.
+
+**A real methodology trap hit along the way**: testing capture by
+connecting to `127.0.0.1` or even this machine's own real LAN IP from
+itself produces nothing, because Windows short-circuits same-machine
+traffic around the physical NIC entirely -- Npcap taps the NIC driver
+stack, so it never sees traffic that never reaches it. That looked
+exactly like a broken capture and cost real debugging time before the
+actual cause surfaced. The valid verification was watching genuine
+ambient traffic (this machine's real outbound HTTPS connections) and
+confirming SYNs were parsed and the direction filter correctly
+suppressed them as non-scans.
+
 ## Offline-by-design software version tracking
 
 `collectors/software_version.py` deliberately does **not** call out to

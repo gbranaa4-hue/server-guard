@@ -31,6 +31,9 @@ from collectors import (
     NetworkHealthCollector,
     SystemHealthCollector,
     SoftwareVersionCollector,
+    PacketCaptureCollector,
+    PacketCaptureUnavailable,
+    load_baseline_ports,
 )
 from config.thresholds_config import build_thresholds
 
@@ -49,6 +52,18 @@ def build_registry(learn_baseline: bool) -> CollectorRegistry:
     registry.register(SystemHealthCollector())
     if os.path.exists(DEFAULT_MANIFEST_PATH):
         registry.register(SoftwareVersionCollector(manifest_path=DEFAULT_MANIFEST_PATH))
+
+    # Needs Npcap (a real kernel driver) installed to actually capture
+    # anything -- if it's missing, skip it rather than crash the whole
+    # guard over one optional collector. Once Npcap is installed this
+    # starts working with no code/config change.
+    try:
+        registry.register(PacketCaptureCollector(
+            known_listening_ports=load_baseline_ports(DEFAULT_BASELINE_PATH)
+        ))
+    except PacketCaptureUnavailable as exc:
+        print(f"[server-guard] packet capture unavailable, skipping: {exc}")
+
     return registry
 
 

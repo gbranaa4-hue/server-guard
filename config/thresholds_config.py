@@ -41,6 +41,7 @@ STATISTICAL_CHANNELS = (
     "net.recv_mb_per_s",
     "disk.read_mb_per_s",
     "disk.write_mb_per_s",
+    "pkt.syn_packets",
 )
 
 
@@ -82,6 +83,16 @@ RULES: List[Tuple[str, Range]] = [
     (r"_matches_known_latest$", Range(critical_low=0.5)),
     (r"_baseline_age_days$", Range(stress_high=90, critical_high=180)),
     (r"_check_failed$", Range(stress_high=0.5)),
+    # Real inbound-scan signal (SYNs at ports we're not listening on) --
+    # a genuinely different capability than the socket-table tripwire
+    # above, since that one only ever sees OUR OWN listening ports, never
+    # someone probing us. On a machine that isn't directly
+    # internet-exposed, any nonzero count here is worth a look; deployed
+    # on an internet-facing box this would need raising -- background
+    # scanning noise (Shodan-style crawlers) is constant out there, and
+    # zero-tolerance would just alert nonstop. Provisional, not measured.
+    (r"^pkt\.unexpected_port_probes$", Range(stress_high=3, critical_high=10)),
+    (r"^pkt\.scanning_src_ips$", Range(stress_high=2, critical_high=5)),
 ]
 
 

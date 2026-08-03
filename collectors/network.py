@@ -21,6 +21,17 @@ from typing import Dict, Optional, Set
 import psutil
 
 
+def load_baseline_ports(baseline_path: Optional[str]) -> Set[int]:
+    """Shared with packet_capture.py so both collectors agree on what
+    "expected" means -- a port PacketCaptureCollector should treat as
+    legitimate is exactly the same set NetworkHealthCollector already
+    treats as baselined."""
+    if baseline_path and os.path.exists(baseline_path):
+        with open(baseline_path, "r", encoding="utf-8") as f:
+            return set(json.load(f).get("listening_ports", []))
+    return set()
+
+
 class NetworkHealthCollector:
     name = "net"
 
@@ -32,10 +43,7 @@ class NetworkHealthCollector:
         self._last_t = time.time()
 
     def _load_baseline(self) -> Set[int]:
-        if self.baseline_path and os.path.exists(self.baseline_path):
-            with open(self.baseline_path, "r", encoding="utf-8") as f:
-                return set(json.load(f).get("listening_ports", []))
-        return set()
+        return load_baseline_ports(self.baseline_path)
 
     def save_baseline(self, ports: Set[int]) -> None:
         if not self.baseline_path:

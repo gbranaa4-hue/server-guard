@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 server_guard.db
 config/network_baseline.json
+grafana_dashboard.json

@@ -123,6 +123,33 @@ veterinary-hospital server behavior -- there's no real data for that yet.
 Replace them once real data is flowing; that's a config change, not a
 code change.
 
+## Grafana HUD
+
+`generate_grafana_dashboard.py` uses sensor-duo's `build_dashboard()`
+directly -- it already generates a Grafana dashboard JSON keyed exactly
+to the `readings`/`predictions` SQLite schema `DetectorStore` writes, so
+no adaptation was needed, just real per-channel labels/units for this
+project's actual channels (one timeseries panel per channel, color
+thresholds pulled straight from the same `Range` cutoffs the detectors
+alert on, plus a shared "Alerts (trend + spiking)" table panel). Verified
+live: generates 23 real panels (22 channels + 1 alerts table) from
+whatever this machine's actual collectors produce.
+
+Setup (fully local -- Grafana OSS + its free SQLite plugin, no cloud):
+
+```bash
+python guard.py --max-ticks 1                # make sure server_guard.db has at least one row
+python generate_grafana_dashboard.py         # writes grafana_dashboard.json
+```
+
+1. Install Grafana OSS locally (or point at an existing self-hosted instance).
+2. Install the [`fr-ser/grafana-sqlite-datasource`](https://github.com/fr-ser/grafana-sqlite-datasource) plugin and add a datasource pointing at this project's `server_guard.db`.
+3. Dashboards -> Import -> upload `grafana_dashboard.json`, map it to that datasource when prompted.
+
+Regenerate any time the active collector set changes (new mount, new
+tracked software) -- panel layout is derived from the live channel list,
+not hardcoded.
+
 ## Not included, on purpose
 
 No automatic blocking, firewalling, or process-killing. This is a

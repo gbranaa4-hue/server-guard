@@ -1,0 +1,12 @@
+{
+  "python": {
+    "check_command": "python --version",
+    "known_latest": "Python 3.12.10",
+    "known_latest_set_at": 1785000000.0
+  },
+  "winget": {
+    "check_command": "winget --version",
+    "known_latest": "v1.28.000",
+    "known_latest_set_at": 1785000000.0
+  }
+}

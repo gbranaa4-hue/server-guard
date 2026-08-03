@@ -1,0 +1,28 @@
+{
+  "_comment": "ILLUSTRATIVE PLACEHOLDER ONLY -- not real captured data from any actual veterinary practice. No real vet-hospital server data was available when this was written. Copy this file to config/software_versions.json and replace every entry with the real software actually running on the target server before relying on it.",
+
+  "practice_management_system": {
+    "_note": "e.g. Cornerstone, Avimark, ezyVet, Instinct -- replace check_command with whatever that vendor's CLI/registry/file version stamp actually is on the real box",
+    "check_command": "REPLACE_ME --version",
+    "known_latest": "REPLACE_ME_WITH_REAL_VERSION_STRING",
+    "known_latest_set_at": 0
+  },
+  "imaging_dicom_viewer": {
+    "_note": "e.g. a PACS/DICOM viewer for digital radiography -- version drift here matters for both bugfixes and modality compatibility",
+    "check_command": "REPLACE_ME --version",
+    "known_latest": "REPLACE_ME_WITH_REAL_VERSION_STRING",
+    "known_latest_set_at": 0
+  },
+  "backup_agent": {
+    "_note": "whatever performs the server's nightly backup -- staleness here is a genuinely high-stakes maintenance signal",
+    "check_command": "REPLACE_ME --version",
+    "known_latest": "REPLACE_ME_WITH_REAL_VERSION_STRING",
+    "known_latest_set_at": 0
+  },
+  "os_patch_level": {
+    "_note": "e.g. `wmic qfe list` on Windows Server, or a distro's patch-date stamp on Linux -- track as a single rollup string if the real check is too noisy to diff line-by-line",
+    "check_command": "REPLACE_ME",
+    "known_latest": "REPLACE_ME_WITH_REAL_VERSION_STRING",
+    "known_latest_set_at": 0
+  }
+}

@@ -1,0 +1,2 @@
+psutil>=7.0
+sensor-duo>=0.2.0

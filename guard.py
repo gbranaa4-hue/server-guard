@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import time
 
 from sensor_duo import Reading, TrendDetector, SpikingDetector, DetectorStore
@@ -51,7 +52,22 @@ def build_registry(learn_baseline: bool) -> CollectorRegistry:
     return registry
 
 
+def _ensure_wal_mode(db_path: str) -> None:
+    """WAL mode is stored in the database file itself, not per-connection
+    -- setting it once here means every future connection (guard.py's
+    writer, Grafana's SQLite plugin reading concurrently) gets it, on
+    this run and every run after. Without this, a real live symptom hit
+    while wiring up Grafana: the dashboard panels intermittently threw
+    "database is locked (SQLITE_BUSY)" because the default rollback-
+    journal mode blocks readers during a writer's transaction, and
+    guard.py writes every few seconds while Grafana auto-refreshes."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.close()
+
+
 def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 0) -> None:
+    _ensure_wal_mode(db_path)
     registry = build_registry(learn_baseline)
 
     # One warm-up tick to discover real channel names before wiring detectors --

@@ -58,6 +58,27 @@ def build_units(channels: list[str]) -> dict[str, str]:
     return {c: "percent" for c in channels if PERCENT_CHANNELS.search(c)}
 
 
+# Real UID of this machine's Grafana datasource for server_guard.db,
+# read directly from grafana.db (Connections -> Data sources ->
+# frser-sqlite-datasource-1). Baking it in as a literal here instead of
+# leaving the "${DS_SQLITE}" input placeholder sidesteps a real problem
+# hit doing this by hand: Grafana 13.1.1's dashboard-import UI showed the
+# datasource picker and looked like it applied the substitution, but the
+# panels silently kept querying the OLD default datasource (pond-health's)
+# instead -- caught via a real "no such table: readings" error on that
+# other database, not a hypothetical. Baking in the literal UID means
+# there's no substitution step left to silently fail.
+DATASOURCE_UID = "bfu4131hqlipsd"
+
+
+def _bake_in_datasource_uid(dashboard: dict, uid: str) -> dict:
+    raw = json.dumps(dashboard)
+    raw = raw.replace('"${DS_SQLITE}"', json.dumps(uid))
+    patched = json.loads(raw)
+    patched.pop("__inputs", None)  # nothing left to substitute, so don't prompt for it
+    return patched
+
+
 def main():
     registry = build_registry(learn_baseline=False)
     channels = list(registry.collect_all().keys())
@@ -66,11 +87,13 @@ def main():
     units = build_units(channels)
 
     dashboard = build_dashboard(thresholds, title="Server Guard", labels=labels, units=units)
+    dashboard = _bake_in_datasource_uid(dashboard, DATASOURCE_UID)
 
     with open("grafana_dashboard.json", "w", encoding="utf-8") as f:
         json.dump(dashboard, f, indent=2)
 
-    print(f"Wrote grafana_dashboard.json with {len(channels)} channel panels + 1 alerts table.")
+    print(f"Wrote grafana_dashboard.json with {len(channels)} channel panels + 1 alerts table, "
+          f"datasource uid baked in as {DATASOURCE_UID!r}.")
 
 
 if __name__ == "__main__":

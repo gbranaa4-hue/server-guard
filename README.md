@@ -226,6 +226,28 @@ Hyper-V networking mystery unrelated to the actual feature, this was
 left as an open item to revisit rather than papered over with a claim
 of live verification that didn't actually happen.
 
+## Stealth scan detection (NULL / FIN / XMAS)
+
+Another real, previously-open gap found the same way as the brute-force
+one: by re-examining what the *existing* code actually checks, not by a
+bug report. The scan/brute-force logic has a hard `if tcp.flags != "S":
+return` gate -- meaning nmap's classic stealth techniques (`-sN` NULL
+scan: no flags at all, `-sF` FIN scan: only FIN set, `-sX` XMAS scan:
+FIN+PSH+URG set) exist *specifically* to evade a bare-SYN-only detector,
+and would sail straight past that gate, invisible, regardless of whether
+the target port is listening. `collectors/signatures.py`'s
+`detect_stealth_scan_flags()` checks these three flag combinations
+before that gate, not after -- no legitimate TCP stack ever produces
+them, so zero-tolerance is the correct threshold, not a statistical one.
+
+Same honest verification status as the credential-detection feature
+above: the flag-matching logic is unit-tested against genuine
+scapy-constructed packets for all three techniques
+(`tests/test_signatures.py`, `tests/test_packet_capture.py`), but a live
+external round-trip specifically for this feature is blocked by the
+same pre-existing WSL<->Windows networking regression -- not a new
+issue, and not glossed over as verified when it wasn't.
+
 ## Offline-by-design software version tracking
 
 `collectors/software_version.py` deliberately does **not** call out to

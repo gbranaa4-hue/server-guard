@@ -104,6 +104,10 @@ RULES: List[Tuple[str, Range]] = [
     # zero-tolerance, same reasoning as the listening-port tripwire.
     (r"^pkt\.plaintext_credential_hits$", Range(critical_high=0.5)),
     (r"^pkt\.plaintext_credential_src_ips$", Range(critical_high=0.5)),
+    # No legitimate TCP stack ever sends these flag combinations --
+    # zero-tolerance, same reasoning as the other tripwires above.
+    (r"^pkt\.stealth_scan_hits$", Range(critical_high=0.5)),
+    (r"^pkt\.stealth_scan_src_ips$", Range(critical_high=0.5)),
     # Workflow wait-time channels (currently the synthetic demo collector
     # only -- see collectors/workflow_demo.py). Generic customer-service
     # wait-time bands, provisional until real clinic data replaces them.

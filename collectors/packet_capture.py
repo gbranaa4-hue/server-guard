@@ -40,6 +40,13 @@ What it adds that polling structurally cannot:
     Basic Auth and FTP USER/PASS transmit real credentials in the clear
     -- a genuine, common vulnerability class this now flags directly by
     inspecting payload content on inbound connections.
+  - stealth scan detection (NULL/FIN/XMAS): another real, previously-
+    open gap found by re-examining this collector's own SYN-only check.
+    nmap's -sN/-sF/-sX techniques exist specifically to evade any
+    detector that only watches for a bare SYN -- exactly what this
+    collector's own scan/brute-force logic does. No legitimate TCP
+    stack ever sends these flag combinations, so they're now flagged
+    directly regardless of whether the target port is listening.
 """
 
 from __future__ import annotations
@@ -58,7 +65,7 @@ except ImportError:
 
 import psutil
 
-from .signatures import detect_plaintext_credentials
+from .signatures import detect_plaintext_credentials, detect_stealth_scan_flags
 
 
 def _local_ips() -> Set[str]:
@@ -138,6 +145,8 @@ class PacketCaptureCollector:
         self._listening_port_attempts: Counter[Tuple[str, int]] = Counter()
         self._plaintext_credential_hits = 0
         self._plaintext_credential_src_ips: Set[str] = set()
+        self._stealth_scan_hits: Counter[str] = Counter()  # keyed by signature name
+        self._stealth_scan_src_ips: Set[str] = set()
         self._sniffer_thread: Optional[threading.Thread] = None
         self._sniffer_error: Optional[str] = None
         self._stop = threading.Event()
@@ -165,6 +174,18 @@ class PacketCaptureCollector:
                 with self._lock:
                     self._plaintext_credential_hits += 1
                     self._plaintext_credential_src_ips.add(ip.src)
+
+        # Stealth scans (nmap -sN/-sF/-sX) exist specifically to evade a
+        # bare-SYN-only detector -- exactly what the scan/brute-force
+        # logic below does. Checked BEFORE the SYN-only gate, since these
+        # signatures are, by definition, not SYN packets. Flagged on any
+        # port, listening or not -- no legitimate stack ever sends these.
+        if ip.dst in self._local_ips and ip.src not in self._local_ips:
+            stealth_signature = detect_stealth_scan_flags(str(tcp.flags))
+            if stealth_signature:
+                with self._lock:
+                    self._stealth_scan_hits[stealth_signature] += 1
+                    self._stealth_scan_src_ips.add(ip.src)
 
         if tcp.flags != "S":  # SYN only, not SYN-ACK/etc -- a connection *attempt*
             return
@@ -224,6 +245,8 @@ class PacketCaptureCollector:
                 "brute_force_src_ips": float(brute_force_src_ips),
                 "plaintext_credential_hits": float(self._plaintext_credential_hits),
                 "plaintext_credential_src_ips": float(len(self._plaintext_credential_src_ips)),
+                "stealth_scan_hits": float(sum(self._stealth_scan_hits.values())),
+                "stealth_scan_src_ips": float(len(self._stealth_scan_src_ips)),
             }
             self._syn_count = 0
             self._scan_src_ips = set()
@@ -231,6 +254,8 @@ class PacketCaptureCollector:
             self._listening_port_attempts = Counter()
             self._plaintext_credential_hits = 0
             self._plaintext_credential_src_ips = set()
+            self._stealth_scan_hits = Counter()
+            self._stealth_scan_src_ips = set()
         return values
 
     def close(self) -> None:

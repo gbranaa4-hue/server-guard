@@ -36,3 +36,24 @@ def detect_plaintext_credentials(payload: bytes) -> Optional[str]:
             return "ftp_credentials"
 
     return None
+
+
+# scapy's str(tcp.flags) for these three classic nmap stealth-scan
+# techniques (-sN, -sF, -sX). All exist specifically to evade detectors
+# that only watch for a bare SYN -- which is exactly what this
+# collector's scan/brute-force detection does elsewhere. No legitimate
+# TCP stack sends any of these combinations in normal operation, so
+# zero-tolerance is the correct threshold, not a statistical one.
+_STEALTH_SCAN_SIGNATURES = {
+    "": "null_scan",     # NULL scan: no flags set at all
+    "F": "fin_scan",     # FIN scan: only FIN set
+    "FPU": "xmas_scan",  # XMAS scan: FIN+PSH+URG set ("lit up like a Christmas tree")
+}
+
+
+def detect_stealth_scan_flags(flags_str: str) -> Optional[str]:
+    """Returns a short signature name ("null_scan"/"fin_scan"/"xmas_scan")
+    if the TCP flag combination matches a classic stealth-scan technique,
+    else None. Takes the already-stringified flags (str(pkt[TCP].flags))
+    rather than a scapy object, so this stays testable without scapy."""
+    return _STEALTH_SCAN_SIGNATURES.get(flags_str)

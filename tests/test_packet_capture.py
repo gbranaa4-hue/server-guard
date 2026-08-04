@@ -28,6 +28,8 @@ def _make_collector(known_ports=None, brute_force_threshold=5):
     c._brute_force_threshold = brute_force_threshold
     c._plaintext_credential_hits = 0
     c._plaintext_credential_src_ips = set()
+    c._stealth_scan_hits = Counter()
+    c._stealth_scan_src_ips = set()
     c._sniffer_error = None
     c._sniffer_thread = None
     return c
@@ -142,6 +144,54 @@ def test_ordinary_traffic_does_not_trigger_credential_detection():
     assert c._plaintext_credential_hits == 0
 
 
+def test_null_scan_is_detected_even_though_it_is_not_a_syn():
+    """The real gap this closes: the scan/brute-force logic above only
+    ever looks at bare SYN packets (`if tcp.flags != "S": return`), so a
+    NULL scan -- no flags at all, an nmap technique that exists
+    specifically to evade SYN-only detectors -- would otherwise hit that
+    early return and vanish completely, on an unlistened port too."""
+    c = _make_collector(known_ports=set())
+    pkt = IP(src="203.0.113.7", dst="10.0.0.100") / TCP(flags=0, dport=31337, sport=12345)
+    c._on_packet(pkt)
+    assert c._stealth_scan_hits["null_scan"] == 1
+    assert c._stealth_scan_src_ips == {"203.0.113.7"}
+    # and, as expected, the OLD scan detector saw nothing at all -- proving the gap was real
+    assert c._scan_src_ips == set()
+    assert c._probed_unlistened_ports == set()
+
+
+def test_fin_scan_is_detected():
+    c = _make_collector(known_ports={22})  # even a LISTENING port -- stealth scans don't care
+    pkt = IP(src="203.0.113.7", dst="10.0.0.100") / TCP(flags="F", dport=22, sport=12345)
+    c._on_packet(pkt)
+    assert c._stealth_scan_hits["fin_scan"] == 1
+
+
+def test_xmas_scan_is_detected():
+    c = _make_collector(known_ports=set())
+    pkt = IP(src="203.0.113.7", dst="10.0.0.100") / TCP(flags="FPU", dport=31337, sport=12345)
+    c._on_packet(pkt)
+    assert c._stealth_scan_hits["xmas_scan"] == 1
+
+
+def test_outbound_unusual_flags_are_not_flagged_as_stealth_scan():
+    """Same direction rule as everything else -- only inbound counts."""
+    c = _make_collector(known_ports=set())
+    pkt = IP(src="10.0.0.100", dst="34.149.66.165") / TCP(flags=0, dport=443, sport=53605)
+    c._on_packet(pkt)
+    assert sum(c._stealth_scan_hits.values()) == 0
+
+
+def test_stealth_scan_counters_included_in_collect():
+    c = _make_collector(known_ports=set())
+    for flags in (0, "F", "FPU"):
+        pkt = IP(src="203.0.113.7", dst="10.0.0.100") / TCP(flags=flags, dport=31337, sport=12345)
+        c._on_packet(pkt)
+    values = c.collect()
+    assert values["stealth_scan_hits"] == 3.0
+    assert values["stealth_scan_src_ips"] == 1.0
+
+
 def test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list():
     """Regression for a real measured reliability finding: watching every
     auto-discovered interface (9 on the dev machine this was tested on)
@@ -176,6 +226,11 @@ if __name__ == "__main__":
     test_plaintext_http_basic_auth_is_detected_in_a_non_syn_data_packet()
     test_outbound_credential_traffic_is_not_flagged()
     test_ordinary_traffic_does_not_trigger_credential_detection()
+    test_null_scan_is_detected_even_though_it_is_not_a_syn()
+    test_fin_scan_is_detected()
+    test_xmas_scan_is_detected()
+    test_outbound_unusual_flags_are_not_flagged_as_stealth_scan()
+    test_stealth_scan_counters_included_in_collect()
     test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list()
     test_explicit_iface_list_is_honored_unchanged()
     print("all tests passed")

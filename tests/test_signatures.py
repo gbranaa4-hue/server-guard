@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from collectors.signatures import detect_plaintext_credentials
+from collectors.signatures import detect_plaintext_credentials, detect_stealth_scan_flags
 
 
 def test_detects_http_basic_auth():
@@ -41,6 +41,32 @@ def test_bearer_token_auth_is_not_misflagged_as_basic():
     assert detect_plaintext_credentials(payload) is None
 
 
+def test_detects_null_scan():
+    """NULL scan (nmap -sN): no TCP flags set at all -- a bare SYN
+    detector never sees this, by construction."""
+    assert detect_stealth_scan_flags("") == "null_scan"
+
+
+def test_detects_fin_scan():
+    """FIN scan (nmap -sF): only the FIN flag set."""
+    assert detect_stealth_scan_flags("F") == "fin_scan"
+
+
+def test_detects_xmas_scan():
+    """XMAS scan (nmap -sX): FIN+PSH+URG all set ("lit up like a
+    Christmas tree")."""
+    assert detect_stealth_scan_flags("FPU") == "xmas_scan"
+
+
+def test_normal_syn_is_not_a_stealth_scan():
+    assert detect_stealth_scan_flags("S") is None
+
+
+def test_normal_data_packet_flags_are_not_a_stealth_scan():
+    assert detect_stealth_scan_flags("PA") is None
+    assert detect_stealth_scan_flags("A") is None
+
+
 if __name__ == "__main__":
     test_detects_http_basic_auth()
     test_detects_http_basic_auth_case_insensitive()
@@ -48,4 +74,9 @@ if __name__ == "__main__":
     test_detects_ftp_pass_command()
     test_ordinary_http_traffic_is_not_flagged()
     test_bearer_token_auth_is_not_misflagged_as_basic()
+    test_detects_null_scan()
+    test_detects_fin_scan()
+    test_detects_xmas_scan()
+    test_normal_syn_is_not_a_stealth_scan()
+    test_normal_data_packet_flags_are_not_a_stealth_scan()
     print("all tests passed")

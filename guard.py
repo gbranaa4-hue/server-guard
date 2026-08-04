@@ -39,6 +39,7 @@ from collectors.workflow_demo import WorkflowDemoCollector
 from config.thresholds_config import build_thresholds
 from alerting import AlertStateTracker
 from alerting.config_loader import load_notifiers, load_min_renotify_interval
+from alerting.correlation import TransitionEvent, build_notification
 import logging
 from logging_setup import setup_logging
 from retention import RetentionManager, DEFAULT_RETENTION_DAYS
@@ -163,6 +164,13 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
             spiking.ingest(reading)
             store.log_reading(now, reading)
 
+            # Collected across the whole tick, not sent per-channel as they're
+            # found -- several metrics degrading at the same real moment (a CPU
+            # spike and a disk I/O spike together) get combined into ONE
+            # notification instead of N separate ones an operator has to
+            # manually connect. See alerting/correlation.py.
+            tick_transitions = []
+
             for detector_name, detector in (("trend", trend), ("spiking", spiking)):
                 for pred in detector.predict_all():
                     alerted = pred.status in ("stress", "critical")
@@ -172,14 +180,18 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
                                         f"{pred.current_value} {pred.explanation}")
 
                     transition = alert_tracker.check(detector_name, pred.channel, pred.status)
-                    if transition and notifiers.names:
-                        notifiers.notify_all(
-                            title=f"{pred.channel} ({detector_name})",
-                            message=f"{transition}: {pred.explanation}",
-                            severity=pred.status,
-                        )
-                        for err in notifiers.last_errors:
-                            logger.error(f"notifier '{err.notifier_name}' failed: {err.error}")
+                    if transition:
+                        tick_transitions.append(TransitionEvent(
+                            detector=detector_name, channel=pred.channel,
+                            transition=transition, status=pred.status,
+                            explanation=pred.explanation,
+                        ))
+
+            if tick_transitions and notifiers.names:
+                title, message, severity = build_notification(tick_transitions)
+                notifiers.notify_all(title=title, message=message, severity=severity)
+                for err in notifiers.last_errors:
+                    logger.error(f"notifier '{err.notifier_name}' failed: {err.error}")
 
             for err in registry.last_errors:
                 logger.error(f"collector '{err.collector_name}' failed: {err.error}")

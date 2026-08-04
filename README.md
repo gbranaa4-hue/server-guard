@@ -628,8 +628,23 @@ channels -- a real disk-growth problem over weeks, not hypothetical).
 - **`retention.py`** -- deletes `readings`/`predictions` rows older than
   a configurable window (default 30 days), checked once per hour of
   real uptime rather than every tick, since a DELETE is real overhead a
-  5-second loop shouldn't pay every single cycle for. Regression-tested
-  for both the deletion boundary and the check-interval throttle.
+  5-second loop shouldn't pay every single cycle for. **Rolls up before
+  deleting**, closing a real gap: the original version just discarded
+  old data outright, unlike a real time-series system (InfluxDB/
+  Prometheus/TimescaleDB-style), which keeps old data as coarser
+  aggregates instead of losing it. `readings_rollup` now stores real
+  hourly mean/min/max/count per channel before the raw rows are
+  deleted, idempotent by construction (`(channel, period_start)` primary
+  key + `INSERT OR IGNORE`, so re-running against already-rolled-up data
+  is a no-op, not a duplicate). Verified against a real copy of this
+  project's own accumulated ~52k-row production database: 101 real
+  rollup rows created with sensible aggregated stats (e.g.
+  `sys.cpu_pct` mean ~20-21%, counts from 2 to 653 samples per hour
+  matching this session's actual variable uptime) before the
+  corresponding raw rows were deleted. Regression-tested for the
+  deletion boundary, the check-interval throttle, the rollup itself,
+  idempotency across repeated runs, and that recent (non-expired) data
+  is left at full raw resolution.
 
 ```bash
 python supervisor.py -- --interval 5 --retention-days 30   # recommended for continuous operation

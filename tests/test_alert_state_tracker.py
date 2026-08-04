@@ -29,12 +29,29 @@ def test_recovery_transition_notifies():
     assert t.check("spiking", "net.unexpected_listening_ports", "ideal") == "critical -> ideal"
 
 
-def test_cooldown_suppresses_rapid_flapping():
+def test_cooldown_suppresses_rapid_flapping_between_non_ideal_statuses():
+    """Escalating/lateral flapping (stress <-> critical) still respects
+    the cooldown -- only recovery-to-ideal is exempt (see below)."""
     t = AlertStateTracker(min_renotify_interval_s=3600)  # 1 hour, won't clear during this test
     assert t.check("trend", "sys.cpu_pct", "stress") == "ideal -> stress"
-    # flaps back and forth within the cooldown window -- must not renotify
-    assert t.check("trend", "sys.cpu_pct", "ideal") is None
-    assert t.check("trend", "sys.cpu_pct", "stress") is None
+    assert t.check("trend", "sys.cpu_pct", "critical") is None  # suppressed by cooldown
+    assert t.check("trend", "sys.cpu_pct", "stress") is None    # suppressed by cooldown
+
+
+def test_recovery_to_ideal_bypasses_cooldown():
+    """Real bug caught by a live test: opened a real unbaselined port,
+    watched the CRITICAL alert deliver, closed it, and the recovery
+    notification never arrived -- the whole incident (12s) was shorter
+    than the 60s cooldown, so the resolution got silently swallowed by
+    flapping protection meant for something else entirely. A real
+    on-call tool always delivers a resolution promptly since it can only
+    fire once per incident; recovery-to-ideal must bypass the cooldown
+    the same way, even though everything else still respects it."""
+    t = AlertStateTracker(min_renotify_interval_s=3600)
+    assert t.check("trend", "net.unexpected_listening_ports", "critical") == "ideal -> critical"
+    # would be suppressed under the old logic (well within the 1-hour cooldown) --
+    # must notify anyway because it's a recovery
+    assert t.check("trend", "net.unexpected_listening_ports", "ideal") == "critical -> ideal"
 
 
 def test_status_is_still_tracked_even_when_notification_is_suppressed():
@@ -53,6 +70,7 @@ if __name__ == "__main__":
     test_first_alert_fires_from_implicit_ideal_baseline()
     test_repeated_same_status_does_not_renotify()
     test_recovery_transition_notifies()
-    test_cooldown_suppresses_rapid_flapping()
+    test_cooldown_suppresses_rapid_flapping_between_non_ideal_statuses()
+    test_recovery_to_ideal_bypasses_cooldown()
     test_status_is_still_tracked_even_when_notification_is_suppressed()
     print("all tests passed")

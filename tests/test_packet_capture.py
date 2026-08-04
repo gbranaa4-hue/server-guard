@@ -7,7 +7,8 @@ of this host's own IPs, from somewhere else) should count."""
 import os
 import sys
 import threading
-from collections import Counter
+import time
+from collections import Counter, defaultdict, deque
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -16,7 +17,7 @@ from scapy.all import IP, TCP, Raw
 from collectors.packet_capture import PacketCaptureCollector
 
 
-def _make_collector(known_ports=None, brute_force_threshold=5):
+def _make_collector(known_ports=None, brute_force_threshold=5, beacon_history_len=20):
     c = PacketCaptureCollector.__new__(PacketCaptureCollector)
     c._known_listening_ports = known_ports or set()
     c._local_ips = {"10.0.0.100"}
@@ -30,6 +31,8 @@ def _make_collector(known_ports=None, brute_force_threshold=5):
     c._plaintext_credential_src_ips = set()
     c._stealth_scan_hits = Counter()
     c._stealth_scan_src_ips = set()
+    c._beacon_history_len = beacon_history_len
+    c._outbound_history = defaultdict(lambda: deque(maxlen=beacon_history_len))
     c._sniffer_error = None
     c._sniffer_thread = None
     return c
@@ -192,6 +195,62 @@ def test_stealth_scan_counters_included_in_collect():
     assert values["stealth_scan_src_ips"] == 1.0
 
 
+def test_outbound_syn_is_recorded_in_beacon_history():
+    """The other direction from everything else -- is THIS machine
+    reaching out, not something reaching in."""
+    c = _make_collector(known_ports=set())
+    pkt = IP(src="10.0.0.100", dst="93.184.216.34") / TCP(flags="S", dport=443, sport=53605)
+    c._on_packet(pkt)
+    assert len(c._outbound_history[("93.184.216.34", 443)]) == 1
+
+
+def test_regular_outbound_connections_flagged_as_beacon_candidate():
+    """Real timestamps this time (not a mocked interval list), exercising
+    the actual on-packet -> collect() path end to end."""
+    c = _make_collector(known_ports=set())
+    dst = ("93.184.216.34", 443)
+    base = time.time() - 300  # pretend these happened over the last 5 minutes
+    for i in range(6):
+        c._outbound_history[dst].append(base + i * 60.0)  # a connection every 60s, like clockwork
+    values = c.collect()
+    assert values["beacon_candidate_destinations"] == 1.0
+
+
+def test_irregular_outbound_connections_are_not_flagged():
+    c = _make_collector(known_ports=set())
+    dst = ("93.184.216.34", 443)
+    base = time.time() - 1000
+    offsets = [0, 12, 340, 45, 900, 930]  # bursty, human-like
+    for o in offsets:
+        c._outbound_history[dst].append(base + o)
+    values = c.collect()
+    assert values["beacon_candidate_destinations"] == 0.0
+
+
+def test_beacon_history_persists_across_collect_calls():
+    """Unlike every other counter in this class, outbound history must
+    NOT reset each tick -- a beacon period is minutes-to-hours, not one
+    5-second tick."""
+    c = _make_collector(known_ports=set())
+    dst = ("93.184.216.34", 443)
+    now = time.time()
+    for i in range(3):
+        c._outbound_history[dst].append(now + i * 60.0)
+    c.collect()  # a tick boundary
+    for i in range(3, 6):
+        c._outbound_history[dst].append(now + i * 60.0)
+    values = c.collect()  # a second tick boundary -- must still see all 6 points
+    assert values["beacon_candidate_destinations"] == 1.0
+
+
+def test_beacon_history_is_bounded_per_destination():
+    c = _make_collector(known_ports=set(), beacon_history_len=5)
+    dst = ("93.184.216.34", 443)
+    for i in range(20):
+        c._outbound_history[dst].append(float(i))
+    assert len(c._outbound_history[dst]) == 5  # capped, not unbounded memory growth
+
+
 def test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list():
     """Regression for a real measured reliability finding: watching every
     auto-discovered interface (9 on the dev machine this was tested on)
@@ -231,6 +290,11 @@ if __name__ == "__main__":
     test_xmas_scan_is_detected()
     test_outbound_unusual_flags_are_not_flagged_as_stealth_scan()
     test_stealth_scan_counters_included_in_collect()
+    test_outbound_syn_is_recorded_in_beacon_history()
+    test_regular_outbound_connections_flagged_as_beacon_candidate()
+    test_irregular_outbound_connections_are_not_flagged()
+    test_beacon_history_persists_across_collect_calls()
+    test_beacon_history_is_bounded_per_destination()
     test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list()
     test_explicit_iface_list_is_honored_unchanged()
     print("all tests passed")

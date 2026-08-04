@@ -248,6 +248,44 @@ external round-trip specifically for this feature is blocked by the
 same pre-existing WSL<->Windows networking regression -- not a new
 issue, and not glossed over as verified when it wasn't.
 
+## Outbound C2 beacon detection
+
+Everything above looks INBOUND: is someone attacking us. This looks the
+other way: is *this machine* compromised and phoning home? Malware
+beaconing tends to reconnect to its C2 server at suspiciously REGULAR
+intervals -- low coefficient of variation (std/mean) between successive
+connections to the same destination -- unlike normal human/application
+traffic, which is comparatively bursty. This is the same heuristic real
+tools like RITA and Zeek's beacon detection use, not something invented
+for this project.
+
+The one signal in this collector that needs state persisting **across**
+ticks rather than resetting every collect() call -- a beacon period is
+minutes-to-hours, not one 5-second tick. Bounded per-destination history
+(`deque(maxlen=20)`) keeps memory from growing unboundedly for
+destinations contacted once and never again.
+
+**Fully verified live** -- this feature didn't hit the WSL networking
+wall the last two did, since it's outbound traffic to a real external
+host (the same kind of traffic already proven captured correctly in
+earlier ambient-traffic tests), not something that needs to cross into
+WSL at all:
+- Made 6 real connections from this machine to a real public host
+  (`1.1.1.1:443`) every 6 seconds -- correctly flagged
+  (`beacon_candidate_destinations=1`).
+- Made 6 real connections to a different real host (`8.8.8.8:443`) at
+  irregular, human-like intervals -- correctly **not** flagged
+  (`beacon_candidate_destinations=0`).
+
+**A real false-positive risk, disclosed rather than hidden**: unlike the
+zero-tolerance tripwires elsewhere in this collector, this is a
+statistical heuristic. Legitimate periodic software (an update checker,
+NTP sync, a monitoring agent -- even this guard's own collection loop)
+can look regular too. Thresholded accordingly: `stress` at even one
+candidate (worth a look), `critical` only once multiple distinct
+destinations show the pattern simultaneously, which is harder to explain
+away as one ordinary background process.
+
 ## Offline-by-design software version tracking
 
 `collectors/software_version.py` deliberately does **not** call out to

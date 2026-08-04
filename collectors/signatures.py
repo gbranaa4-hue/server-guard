@@ -57,3 +57,29 @@ def detect_stealth_scan_flags(flags_str: str) -> Optional[str]:
     else None. Takes the already-stringified flags (str(pkt[TCP].flags))
     rather than a scapy object, so this stays testable without scapy."""
     return _STEALTH_SCAN_SIGNATURES.get(flags_str)
+
+
+def is_beaconing(intervals, cv_threshold: float = 0.15, min_samples: int = 4,
+                  min_interval_s: float = 5.0, max_interval_s: float = 3600.0) -> bool:
+    """Classic C2-beacon heuristic (the same one real tools like RITA/
+    Zeek's beacon detection use): malware phoning home tends to reconnect
+    at suspiciously REGULAR intervals, unlike normal human/application
+    traffic which is comparatively bursty and irregular. Measured as the
+    coefficient of variation (std/mean) of inter-connection intervals to
+    the same destination -- low CV means "surprisingly regular timing."
+
+    min_interval_s/max_interval_s bound what counts as a plausible beacon
+    period: sub-5-second reconnects are more likely a retry loop or
+    keepalive than a beacon, and multi-hour periods are hard to
+    distinguish from coincidence with a small sample size. Both are
+    provisional, not measured against real malware beacon intervals.
+    """
+    if len(intervals) < min_samples:
+        return False
+    mean = sum(intervals) / len(intervals)
+    if not (min_interval_s <= mean <= max_interval_s):
+        return False
+    variance = sum((x - mean) ** 2 for x in intervals) / len(intervals)
+    std = variance ** 0.5
+    cv = std / mean if mean > 0 else float("inf")
+    return cv <= cv_threshold

@@ -47,12 +47,22 @@ What it adds that polling structurally cannot:
     collector's own scan/brute-force logic does. No legitimate TCP
     stack ever sends these flag combinations, so they're now flagged
     directly regardless of whether the target port is listening.
+  - outbound C2 beacon detection: everything above is INBOUND-focused
+    (is someone attacking us). This looks the other way: is THIS
+    machine compromised and phoning home? Tracks the timing between
+    successive outbound connections to the same destination; malware
+    beaconing tends to reconnect at suspiciously REGULAR intervals
+    (low coefficient of variation), unlike normal bursty human/app
+    traffic. The one signal here that needs state persisting ACROSS
+    ticks, not reset each collect() call, since a beacon period is
+    minutes-to-hours, not one 5-second tick.
 """
 
 from __future__ import annotations
 
 import threading
-from collections import Counter
+import time
+from collections import Counter, defaultdict, deque
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 try:
@@ -65,7 +75,7 @@ except ImportError:
 
 import psutil
 
-from .signatures import detect_plaintext_credentials, detect_stealth_scan_flags
+from .signatures import detect_plaintext_credentials, detect_stealth_scan_flags, is_beaconing
 
 
 def _local_ips() -> Set[str]:
@@ -114,7 +124,8 @@ class PacketCaptureCollector:
 
     def __init__(self, known_listening_ports: Optional[Set[int]] = None,
                  iface: Optional[Union[str, List[str]]] = None,
-                 brute_force_threshold: int = 5):
+                 brute_force_threshold: int = 5,
+                 beacon_history_len: int = 20):
         if not SCAPY_AVAILABLE:
             raise PacketCaptureUnavailable("scapy is not installed (pip install scapy)")
 
@@ -147,6 +158,16 @@ class PacketCaptureCollector:
         self._plaintext_credential_src_ips: Set[str] = set()
         self._stealth_scan_hits: Counter[str] = Counter()  # keyed by signature name
         self._stealth_scan_src_ips: Set[str] = set()
+        # Bounded per-destination history (deque(maxlen=...)) so a
+        # long-running process doesn't accumulate unbounded memory for
+        # destinations contacted once and never again. This state
+        # deliberately persists ACROSS collect() calls -- unlike
+        # everything else in this class, a beacon period is
+        # minutes-to-hours, not one tick.
+        self._beacon_history_len = beacon_history_len
+        self._outbound_history: Dict[Tuple[str, int], deque] = defaultdict(
+            lambda: deque(maxlen=self._beacon_history_len)
+        )
         self._sniffer_thread: Optional[threading.Thread] = None
         self._sniffer_error: Optional[str] = None
         self._stop = threading.Event()
@@ -207,6 +228,12 @@ class PacketCaptureCollector:
                     # open (a brute-force/credential-stuffing pattern),
                     # not a scan across many ports.
                     self._listening_port_attempts[(ip.src, dst_port)] += 1
+            elif ip.src in self._local_ips and ip.dst not in self._local_ips:
+                # The other direction entirely: is THIS machine reaching
+                # OUT to something, and doing so at suspiciously regular
+                # intervals (a C2 beacon), not whether something is
+                # reaching in to us.
+                self._outbound_history[(ip.dst, tcp.dport)].append(time.time())
 
     def _run_sniffer(self) -> None:
         try:
@@ -247,6 +274,7 @@ class PacketCaptureCollector:
                 "plaintext_credential_src_ips": float(len(self._plaintext_credential_src_ips)),
                 "stealth_scan_hits": float(sum(self._stealth_scan_hits.values())),
                 "stealth_scan_src_ips": float(len(self._stealth_scan_src_ips)),
+                "beacon_candidate_destinations": float(self._count_beacon_candidates()),
             }
             self._syn_count = 0
             self._scan_src_ips = set()
@@ -256,7 +284,23 @@ class PacketCaptureCollector:
             self._plaintext_credential_src_ips = set()
             self._stealth_scan_hits = Counter()
             self._stealth_scan_src_ips = set()
+            # _outbound_history is NOT reset here -- it needs to persist
+            # across ticks to see intervals spanning minutes-to-hours.
         return values
+
+    def _count_beacon_candidates(self) -> int:
+        """Must be called with self._lock already held. Recomputed fresh
+        each collect() from the persistent history -- cheap, since each
+        destination's history is capped at beacon_history_len."""
+        count = 0
+        for timestamps in self._outbound_history.values():
+            if len(timestamps) < 2:
+                continue
+            ts_list = list(timestamps)
+            intervals = [b - a for a, b in zip(ts_list, ts_list[1:])]
+            if is_beaconing(intervals):
+                count += 1
+        return count
 
     def close(self) -> None:
         self._stop.set()

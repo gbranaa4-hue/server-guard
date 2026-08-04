@@ -50,6 +50,7 @@ LABEL_RULES = [
     (r"^pkt\.plaintext_credential_src_ips$", lambda m: "Cleartext Credential Source IPs"),
     (r"^pkt\.stealth_scan_hits$", lambda m: "Stealth Scan Packets (NULL/FIN/XMAS)"),
     (r"^pkt\.stealth_scan_src_ips$", lambda m: "Stealth Scan Source IPs"),
+    (r"^pkt\.beacon_candidate_destinations$", lambda m: "C2 Beacon Candidate Destinations (outbound)"),
 ]
 
 PERCENT_CHANNELS = re.compile(r"(_pct$)")

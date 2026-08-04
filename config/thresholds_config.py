@@ -108,6 +108,13 @@ RULES: List[Tuple[str, Range]] = [
     # zero-tolerance, same reasoning as the other tripwires above.
     (r"^pkt\.stealth_scan_hits$", Range(critical_high=0.5)),
     (r"^pkt\.stealth_scan_src_ips$", Range(critical_high=0.5)),
+    # Unlike the tripwires above, this is a statistical heuristic with a
+    # real false-positive risk -- legitimate periodic software (an
+    # update checker, NTP, monitoring tools, even this guard's own
+    # collection) can look regular too. Stress at any candidate (worth
+    # a look), critical only once multiple distinct destinations show
+    # the pattern (harder to explain away as one legitimate app).
+    (r"^pkt\.beacon_candidate_destinations$", Range(stress_high=0.5, critical_high=3)),
     # Workflow wait-time channels (currently the synthetic demo collector
     # only -- see collectors/workflow_demo.py). Generic customer-service
     # wait-time bands, provisional until real clinic data replaces them.

@@ -26,12 +26,22 @@ What it adds that polling structurally cannot:
     version of the old one)
   - sub-second confirmation that a new local port started listening
     (seeing the SYN-ACK the instant it happens, not on the next poll)
+  - brute-force/credential-stuffing detection: a real, previously-open
+    gap found by re-examining what this collector actually covers. Scan
+    detection only ever looks at SYNs to UNLISTENED ports. A brute-force
+    attack against a real, legitimately-open service (SSH, RDP, a real
+    listening port) never touches an unlistened port at all -- it just
+    hammers the SAME open port repeatedly from one source. That pattern
+    was structurally invisible to both the socket tripwire (which only
+    tracks NEW listening ports) and the scan detector (which only
+    tracks probes to UNLISTENED ports) until this was added.
 """
 
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Optional, Set, Union
+from collections import Counter
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 try:
     from scapy.all import sniff, TCP, IP
@@ -89,7 +99,8 @@ class PacketCaptureCollector:
     name = "pkt"
 
     def __init__(self, known_listening_ports: Optional[Set[int]] = None,
-                 iface: Optional[Union[str, List[str]]] = None):
+                 iface: Optional[Union[str, List[str]]] = None,
+                 brute_force_threshold: int = 5):
         if not SCAPY_AVAILABLE:
             raise PacketCaptureUnavailable("scapy is not installed (pip install scapy)")
 
@@ -108,10 +119,16 @@ class PacketCaptureCollector:
         # measured reliability cost, not a hypothetical one). A real
         # multi-homed deployment should pass an explicit short list here.
         self._iface = iface
+        # Provisional per-tick threshold, not measured -- how many
+        # legitimate retries is normal varies by tick interval and
+        # client behavior. Same "provisional, not measured" disclosure
+        # as the rest of this project's default thresholds.
+        self._brute_force_threshold = brute_force_threshold
         self._lock = threading.Lock()
         self._syn_count = 0
         self._scan_src_ips: Set[str] = set()
         self._probed_unlistened_ports: Set[int] = set()
+        self._listening_port_attempts: Counter[Tuple[str, int]] = Counter()
         self._sniffer_thread: Optional[threading.Thread] = None
         self._sniffer_error: Optional[str] = None
         self._stop = threading.Event()
@@ -140,6 +157,12 @@ class PacketCaptureCollector:
                 if dst_port not in self._known_listening_ports:
                     self._scan_src_ips.add(ip.src)
                     self._probed_unlistened_ports.add(dst_port)
+                else:
+                    # The complementary case scan-detection can't see:
+                    # repeated attempts at a port that IS legitimately
+                    # open (a brute-force/credential-stuffing pattern),
+                    # not a scan across many ports.
+                    self._listening_port_attempts[(ip.src, dst_port)] += 1
 
     def _run_sniffer(self) -> None:
         try:
@@ -165,14 +188,22 @@ class PacketCaptureCollector:
                                             "(likely Npcap not installed)")
 
         with self._lock:
+            max_repeated = max(self._listening_port_attempts.values(), default=0)
+            brute_force_src_ips = len({
+                src for (src, _port), count in self._listening_port_attempts.items()
+                if count >= self._brute_force_threshold
+            })
             values = {
                 "syn_packets": float(self._syn_count),
                 "unexpected_port_probes": float(len(self._probed_unlistened_ports)),
                 "scanning_src_ips": float(len(self._scan_src_ips)),
+                "max_repeated_conn_attempts": float(max_repeated),
+                "brute_force_src_ips": float(brute_force_src_ips),
             }
             self._syn_count = 0
             self._scan_src_ips = set()
             self._probed_unlistened_ports = set()
+            self._listening_port_attempts = Counter()
         return values
 
     def close(self) -> None:

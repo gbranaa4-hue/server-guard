@@ -174,6 +174,32 @@ explicit short list via `PacketCaptureCollector(iface=[...])` rather
 than relying on automatic discovery. Regression tests for both the
 default and the explicit-list path: `tests/test_packet_capture.py`.
 
+## Brute-force / credential-stuffing detection
+
+A real, substantial gap found by re-examining what the packet collector
+actually covers, not by a bug report: scan detection only ever looks at
+SYNs to **unlistened** ports. A brute-force attack against a real,
+legitimately-open service (SSH, RDP, a real listening port) never
+touches an unlistened port at all -- it just hammers the *same* open
+port repeatedly from one source. That pattern was structurally invisible
+to both the socket tripwire (only tracks NEW listening ports) and the
+scan detector (only tracks probes to UNLISTENED ports).
+
+`pkt.max_repeated_conn_attempts` / `pkt.brute_force_src_ips` track
+repeated SYNs to the same *legitimately-listening* port per source --
+the complementary case scan detection structurally can't see.
+
+**Verified live, and the gap confirmed real before calling it fixed**:
+opened a real listening port on the actual server (marked as baselined/
+expected), then hammered it with 10 real rapid connection attempts from
+WSL (the same genuinely-separate network origin used for the earlier
+scan tests). The old scan-detection channels stayed at exactly `0` --
+proving this attack shape really was invisible before -- while the new
+detector correctly flagged it (`max_repeated_conn_attempts=20`,
+`brute_force_src_ips=1`). Regression tests for both the detection
+threshold and the reset-between-ticks behavior:
+`tests/test_packet_capture.py`.
+
 ## Offline-by-design software version tracking
 
 `collectors/software_version.py` deliberately does **not** call out to

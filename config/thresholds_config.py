@@ -93,6 +93,13 @@ RULES: List[Tuple[str, Range]] = [
     # zero-tolerance would just alert nonstop. Provisional, not measured.
     (r"^pkt\.unexpected_port_probes$", Range(stress_high=3, critical_high=10)),
     (r"^pkt\.scanning_src_ips$", Range(stress_high=2, critical_high=5)),
+    # Brute-force/credential-stuffing signal (repeated SYNs to the SAME
+    # legitimately-open port from one source) -- the complementary case
+    # to a scan, which only ever looks at UNLISTENED ports and would
+    # never see this. Provisional per-tick counts, not measured against
+    # real attack tooling's actual retry rate.
+    (r"^pkt\.max_repeated_conn_attempts$", Range(stress_high=5, critical_high=15)),
+    (r"^pkt\.brute_force_src_ips$", Range(critical_high=0.5)),
     # Workflow wait-time channels (currently the synthetic demo collector
     # only -- see collectors/workflow_demo.py). Generic customer-service
     # wait-time bands, provisional until real clinic data replaces them.

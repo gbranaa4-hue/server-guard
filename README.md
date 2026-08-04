@@ -645,6 +645,31 @@ the specific numbers displayed weren't trustworthy yet. Real takeaway:
 behind them before the numbers themselves should be trusted, even though
 the detector's relative ranking can be reliable sooner.
 
+**Utilization-based resource bottleneck, no demo data required**:
+`identify_bottleneck()` above only has something to rank once the
+synthetic workflow-stage demo is enabled -- not useful on a real
+deployment with no workflow data yet. `workflow/identify_resource_bottleneck()`
+answers a version of the same question ("what's actually the constraint
+right now") using only real, always-present channels: `sys.cpu_pct`,
+`sys.mem_pct`, and every per-mount `disk.*_used_pct` channel (auto-discovered
+by pattern, since mount letters vary by machine). These three are true
+0-100 utilization percentages, so ranking them against each other is
+meaningful -- this is the "U" in the classic ops USE method
+(Utilization/Saturation/Errors), not a new invented metric.
+
+**Deliberately excluded, and disclosed rather than faked**: disk
+read/write MB/s and network recv/sent MB/s are real signals elsewhere in
+this project (the statistical baselines already catch abnormal spikes in
+both), but turning a raw throughput number into a utilization
+*percentage* needs a known capacity ceiling -- max disk IOPS/throughput,
+NIC link speed -- that can't be measured or assumed on an arbitrary
+deployment target. Guessing one would be exactly the kind of invented
+number this project's testing discipline exists to avoid, so those
+channels are left out of this ranking rather than faked in as fake
+utilization numbers. Now included in every `generate_report.py` run as a
+"Resource Bottleneck" section, unconditionally (unlike the workflow
+section, which only appears when `stage_channels` are configured).
+
 ## Reliability: crash recovery, log rotation, real retention
 
 Before this, it was one Python process with no supervision, unbounded

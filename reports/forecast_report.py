@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional
 
-from workflow import identify_bottleneck
+from workflow import identify_bottleneck, identify_resource_bottleneck
 
 
 @dataclass
@@ -56,6 +56,21 @@ def render_report(predictions: List[SimplePrediction], stage_channels: Optional[
     generated_at = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     lines = [f"# {title}", "", f"Generated: {generated_at}", ""]
+
+    resource_bottleneck = identify_resource_bottleneck(predictions)
+    lines.append("## Resource Bottleneck")
+    lines.append("")
+    if resource_bottleneck:
+        label = labels.get(resource_bottleneck.channel, resource_bottleneck.channel)
+        eta = (f"{resource_bottleneck.hours_to_threshold:.1f}h to threshold"
+               if resource_bottleneck.hours_to_threshold is not None else "no crossing projected yet")
+        lines.append(f"**{label}** is the most utilized real resource right now -- status "
+                     f"**{resource_bottleneck.status}**, trending {resource_bottleneck.trend_per_hour:+.2f}/hour, {eta}.")
+        lines.append("")
+        lines.append(f"> {resource_bottleneck.explanation}")
+    else:
+        lines.append("No CPU/memory/disk-capacity utilization data available yet.")
+    lines.append("")
 
     if stage_channels:
         bottleneck = identify_bottleneck(predictions, stage_channels)

@@ -334,6 +334,31 @@ transition for both the trend and spiking detectors -- zero spam,
 despite the process having already run several ticks past each
 condition's onset.
 
+**Two real bugs found by testing the full alert *lifecycle* end to end**,
+not just individual pieces:
+
+1. Recovery notifications were being silently swallowed by the cooldown.
+   Opened a real unbaselined listening port against the live system,
+   watched the CRITICAL alert deliver, closed the port -- and the
+   recovery-to-ideal notification never arrived, because the whole
+   incident (12s) was shorter than the 60s cooldown meant for flapping
+   protection. A real on-call tool (PagerDuty/Opsgenie) always delivers
+   a resolution promptly since it can only fire once per incident.
+   Fixed: recovery-to-ideal transitions bypass the cooldown; everything
+   else still respects it. Re-verified live after the fix -- the
+   recovery notification arrived 12s after the alert, well inside the
+   cooldown window that would have swallowed it before.
+2. A secret-leakage bug: `requests`' exception messages embed the full
+   request URL, so a failing webhook (wrong URL, service down, rate
+   limited) would have written its bearer-token-like URL straight into
+   the plaintext rotating log file. Confirmed real by deliberately
+   triggering a failed POST to a fake Slack-shaped URL and reading the
+   actual exception string -- the token was right there. Fixed:
+   `WebhookNotifierError` redacts the path/query (where the secret
+   lives), keeping only scheme+host. Checked `EmailNotifier` for the
+   same class of bug too -- confirmed clean: a real failed SMTP auth
+   attempt returns a generic server message, never echoes the password.
+
 ## Workflow bottleneck detection + forecast reports
 
 No new detection engine -- `workflow/identify_bottleneck()` just ranks

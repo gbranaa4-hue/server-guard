@@ -516,6 +516,17 @@ tried and abandoned: that directory is under `C:\Program Files\` and
 needs admin rights this account doesn't have. The manual steps above
 need no elevation.
 
+**Ad-hoc querying already exists here, without building anything new**:
+Grafana's built-in **Explore** view (the compass icon in the left nav)
+runs arbitrary queries against any configured datasource -- including
+the SQLite one this project already wires up above -- with no extra
+setup. That covers the "let me just poke at the raw data" need a real
+analytics tool's query console fills, for both `readings` and
+`predictions` tables, without server-guard needing its own query UI.
+Genuinely free capability already present once the datasource from the
+setup steps above exists; noted here so it doesn't read as a missing
+feature.
+
 ## Not included, on purpose
 
 No automatic blocking, firewalling, or process-killing. This is a

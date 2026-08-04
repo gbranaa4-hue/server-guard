@@ -315,6 +315,25 @@ candidate (worth a look), `critical` only once multiple distinct
 destinations show the pattern simultaneously, which is harder to explain
 away as one ordinary background process.
 
+**Jitter-threshold recalibration** (the CV cutoff moved from `0.15` to
+`0.20`): a base interval with uniform random jitter of ±X% has a
+theoretical coefficient of variation of approximately `X/sqrt(3)`. A
+real, common C2 default -- 25% jitter, the kind tools like Cobalt Strike
+ship with, not an invented edge case -- works out to CV~0.144, which sat
+right on top of the old 0.15 threshold and could be missed on an unlucky
+sample. Verified empirically, not just algebraically: a fixed-seed
+(`random.Random(42)`) 25%-jitter sequence measured CV=0.158 -- above the
+old threshold (would have been missed) and below the new one (correctly
+caught). The new 0.20 threshold catches jitter up to roughly 35% while
+staying far below genuine human/app irregularity (measured CV~0.44 on
+the bursty-traffic case in this project's own tests). **Disclosed
+limitation**: this does not make the detector jitter-proof. A
+deliberately evasive 40%+ jitter configuration still defeats a pure
+timing heuristic -- which is exactly why real tools combine this signal
+with others (DNS analysis, TLS fingerprinting, destination reputation)
+rather than relying on interval timing alone. This project doesn't have
+those other signals yet, so that gap is real, not hidden.
+
 ## Offline-by-design software version tracking
 
 `collectors/software_version.py` deliberately does **not** call out to

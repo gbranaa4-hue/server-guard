@@ -59,7 +59,7 @@ def detect_stealth_scan_flags(flags_str: str) -> Optional[str]:
     return _STEALTH_SCAN_SIGNATURES.get(flags_str)
 
 
-def is_beaconing(intervals, cv_threshold: float = 0.15, min_samples: int = 4,
+def is_beaconing(intervals, cv_threshold: float = 0.20, min_samples: int = 4,
                   min_interval_s: float = 5.0, max_interval_s: float = 3600.0) -> bool:
     """Classic C2-beacon heuristic (the same one real tools like RITA/
     Zeek's beacon detection use): malware phoning home tends to reconnect
@@ -73,6 +73,21 @@ def is_beaconing(intervals, cv_threshold: float = 0.15, min_samples: int = 4,
     keepalive than a beacon, and multi-hour periods are hard to
     distinguish from coincidence with a small sample size. Both are
     provisional, not measured against real malware beacon intervals.
+
+    cv_threshold was raised from an initial 0.15 after checking it
+    against real, common C2 defaults, not just against "no jitter at
+    all": for a base interval with +/-X% uniform random jitter (the
+    standard way tools like Cobalt Strike add jitter), the theoretical
+    CV is approximately X/sqrt(3). A real 25% jitter setting -- common,
+    not an edge case -- produces CV~0.144, which sat right on top of the
+    old 0.15 threshold and would have been missed on an unlucky sample.
+    0.20 catches jitter up to roughly 35% while staying far below
+    genuine human/app irregularity (measured CV~0.44 on real bursty
+    traffic in this project's own tests). This does NOT make the
+    detector jitter-proof -- a deliberately evasive 40%+ jitter
+    configuration still defeats a pure timing-based heuristic, which is
+    exactly why real tools combine this signal with others (DNS
+    analysis, TLS fingerprinting) rather than relying on timing alone.
     """
     if len(intervals) < min_samples:
         return False

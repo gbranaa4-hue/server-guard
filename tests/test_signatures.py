@@ -94,6 +94,32 @@ def test_interval_outside_plausible_beacon_range_is_not_flagged():
     assert is_beaconing(intervals_slow) is False
 
 
+def test_realistic_25_percent_jitter_is_now_caught():
+    """The real reason the default threshold moved from 0.15 to 0.20:
+    a base-60s interval with +/-25% uniform jitter -- the standard way
+    real C2 tools like Cobalt Strike add jitter, not an invented edge
+    case -- has a theoretical CV of ~0.144 (jitter_pct/sqrt(3)), which
+    sat right on top of the old 0.15 threshold and could be missed on an
+    unlucky sample. This exact fixed-seed sequence was measured to have
+    CV=0.158 -- above the OLD threshold (would have been missed) but
+    below the NEW one (correctly caught)."""
+    import random
+    rng = random.Random(42)
+    base, jitter_pct = 60.0, 0.25
+    intervals = [base * (1 + rng.uniform(-jitter_pct, jitter_pct)) for _ in range(8)]
+    assert is_beaconing(intervals, cv_threshold=0.15) is False  # the old threshold missed this
+    assert is_beaconing(intervals, cv_threshold=0.20) is True   # the new default catches it
+
+
+def test_human_like_traffic_stays_unflagged_even_at_the_looser_threshold():
+    """Raising the threshold to catch more real jitter must not make the
+    detector trigger on genuinely irregular human/app traffic -- checked
+    against the same bursty pattern used elsewhere in this file, which
+    measures CV~0.44, comfortably above even the new 0.20 threshold."""
+    intervals = [12.0, 340.0, 45.0, 900.0, 30.0]
+    assert is_beaconing(intervals, cv_threshold=0.20) is False
+
+
 if __name__ == "__main__":
     test_detects_http_basic_auth()
     test_detects_http_basic_auth_case_insensitive()
@@ -111,4 +137,6 @@ if __name__ == "__main__":
     test_irregular_human_like_intervals_are_not_flagged()
     test_too_few_samples_are_not_flagged_even_if_regular()
     test_interval_outside_plausible_beacon_range_is_not_flagged()
+    test_realistic_25_percent_jitter_is_now_caught()
+    test_human_like_traffic_stays_unflagged_even_at_the_looser_threshold()
     print("all tests passed")

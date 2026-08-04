@@ -13,6 +13,35 @@ hygiene for a veterinary hospital's server**, with the original network
 intrusion-detection layer folded in alongside it rather than dropped, so
 one guard covers both concerns.
 
+**Quick start**: see [Usage](#usage). **Architecture**: see
+[Why this shape](#why-this-shape). **What it actually catches**: see the
+detection sections below. Everything here is either regression-tested or
+verified against real live traffic (or both) -- where a live test hit a
+real environmental blocker instead, that's said outright, not glossed
+over.
+
+## Table of contents
+
+- [Why this shape](#why-this-shape)
+- [Network intrusion detection](#network-intrusion-detection)
+- [Attack-realism testing against a genuinely separate network origin](#attack-realism-testing-against-a-genuinely-separate-network-origin)
+- [Brute-force / credential-stuffing detection](#brute-force--credential-stuffing-detection)
+- [Cleartext credential detection](#cleartext-credential-detection)
+- [Stealth scan detection (NULL / FIN / XMAS)](#stealth-scan-detection-null--fin--xmas)
+- [Outbound C2 beacon detection](#outbound-c2-beacon-detection)
+- [Offline-by-design software version tracking](#offline-by-design-software-version-tracking)
+- [Verified (real, not simulated)](#verified-real-not-simulated)
+- [Where thresholds actually come from](#where-thresholds-actually-come-from)
+- [A real bug this caught, and the fix](#a-real-bug-this-caught-and-the-fix)
+- [Defaults are provisional until measured](#defaults-are-provisional-until-measured)
+- [Grafana HUD](#grafana-hud)
+- [Not included, on purpose](#not-included-on-purpose)
+- [Real alerting](#real-alerting)
+- [Workflow bottleneck detection + forecast reports](#workflow-bottleneck-detection--forecast-reports)
+- [Reliability: crash recovery, log rotation, real retention](#reliability-crash-recovery-log-rotation-real-retention)
+- [Usage](#usage)
+- [If this ever goes public](#if-this-ever-goes-public)
+
 ## Why this shape
 
 The target server's real data (what practice-management software it
@@ -389,24 +418,46 @@ to the `readings`/`predictions` SQLite schema `DetectorStore` writes, so
 no adaptation was needed, just real per-channel labels/units for this
 project's actual channels (one timeseries panel per channel, color
 thresholds pulled straight from the same `Range` cutoffs the detectors
-alert on, plus a shared "Alerts (trend + spiking)" table panel). Verified
-live: generates 23 real panels (22 channels + 1 alerts table) from
-whatever this machine's actual collectors produce.
+alert on, plus a shared "Alerts (trend + spiking)" table panel). Live
+panel count grows as detection capability does -- regenerate any time
+the active collector set changes; it's derived from the live channel
+list, not hardcoded.
 
-Setup (fully local -- Grafana OSS + its free SQLite plugin, no cloud):
+**Setup (fully local -- Grafana OSS + its free SQLite plugin, no cloud)**:
 
 ```bash
 python guard.py --max-ticks 1                # make sure server_guard.db has at least one row
-python generate_grafana_dashboard.py         # writes grafana_dashboard.json
+python generate_grafana_dashboard.py         # writes grafana_dashboard.json + a .txt copy
 ```
 
-1. Install Grafana OSS locally (or point at an existing self-hosted instance).
-2. Install the [`fr-ser/grafana-sqlite-datasource`](https://github.com/fr-ser/grafana-sqlite-datasource) plugin and add a datasource pointing at this project's `server_guard.db`.
-3. Dashboards -> Import -> upload `grafana_dashboard.json`, map it to that datasource when prompted.
+1. Install Grafana OSS locally (or point at an existing self-hosted instance) and the
+   [`fr-ser/grafana-sqlite-datasource`](https://github.com/fr-ser/grafana-sqlite-datasource) plugin.
+2. Add a datasource pointing at this project's `server_guard.db`:
+   ```
+   path:        C:\Users\gbran\OneDrive\Documents\server-guard\server_guard.db
+   pathOptions: _pragma=query_only(1)
+   pathPrefix:  file:
+   ```
+3. Dashboards -> Import -> upload `grafana_dashboard.txt` (a `.txt` copy is generated alongside the `.json` --
+   some browsers reject `.json` uploads on this dialog, `.txt` works around it).
 
-Regenerate any time the active collector set changes (new mount, new
-tracked software) -- panel layout is derived from the live channel list,
-not hardcoded.
+**A real bug this workflow hit and worked around**: `build_dashboard()`'s
+generic output uses a `${DS_SQLITE}` template variable that Grafana's
+import dialog is supposed to let you map to a real datasource at import
+time. That mapping silently failed on this Grafana version -- the
+dashboard imported with no error, but every panel queried the wrong
+(previous, unrelated) datasource, confirmed by a real `no such table:
+readings` error on that other database. `generate_grafana_dashboard.py`
+now bakes the real datasource UID (read directly from Grafana's own
+`grafana.db`) into every panel at generation time, so there's no
+substitution step left to silently fail -- no datasource mapping prompt
+appears during import at all anymore.
+
+File-based provisioning (dropping both configs straight into Grafana's
+`conf/provisioning/` so no manual UI steps are needed at all) was also
+tried and abandoned: that directory is under `C:\Program Files\` and
+needs admin rights this account doesn't have. The manual steps above
+need no elevation.
 
 ## Not included, on purpose
 
@@ -555,29 +606,6 @@ python guard.py --learn-baseline --max-ticks 1      # first run only: record exp
 python baseline_measure.py --duration 300           # first run only: measure real workload thresholds
 python guard.py --interval 5                        # then run continuously
 ```
-
-## Grafana
-
-`grafana_dashboard.json` was generated against this machine's real
-channel set (see Grafana HUD section above). This same Grafana instance
-already has the `frser-sqlite-datasource` plugin installed and a working
-datasource for a sibling project (pond-health), so the connection shape
-is proven, not guessed. Add a datasource named `server-guard-sqlite`
-with:
-
-```
-path:        C:\Users\gbran\OneDrive\Documents\server-guard\server_guard.db
-pathOptions: _pragma=query_only(1)
-pathPrefix:  file:
-```
-
-then Dashboards -> Import -> upload `grafana_dashboard.json`, mapping
-its `${DS_SQLITE}` input to that datasource. (File-based provisioning --
-dropping both configs straight into Grafana's `conf/provisioning/` so no
-manual UI steps are needed at all -- was attempted but that directory is
-under `C:\Program Files\` and needs admin rights this account doesn't
-have; the manual add-datasource-then-import path above needs no
-elevation.)
 
 ## If this ever goes public
 

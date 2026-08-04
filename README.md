@@ -391,6 +391,43 @@ threshold -- a real failure mode caught while building this, not a
 hypothetical. Regression tests for both the derivation and the floor:
 `tests/test_thresholds_config.py`.
 
+### Seasonality: "normal for 9am" isn't "normal for 3am"
+
+A flat mean+std treats every hour the same, which is wrong for anything
+with a real daily rhythm -- this dev machine's own workload, or a real
+vet clinic's patient volume (naturally higher at 9am than 3am). A pure
+linear/flat model can't tell "a normal daily cycle" from "an ongoing real
+problem."
+
+`baseline_measure.py` now also buckets every real sample by hour-of-day
+(0-23) alongside the existing flat stats, and `build_thresholds()`
+prefers the current hour's own bucket once it has at least
+`MIN_SAMPLES_PER_HOUR_BUCKET` (3) real samples, falling back to the flat
+overall stats for any hour it hasn't seen enough of yet. `guard.py`
+checks the wall-clock hour every tick and refreshes thresholds in place
+when it changes -- confirmed (by reading sensor-duo's source, not
+assumed) that both `TrendDetector` and `SpikingDetector` keep a live
+reference to the same thresholds dict, so mutating its contents doesn't
+require recreating the detectors and losing their accumulated trend
+history / spiking-neuron charge state.
+
+Repeated real `baseline_measure.py` runs **merge** into the existing
+file (weighted by real sample count) rather than overwriting it, so
+real per-hour coverage accumulates across runs taken at different times
+instead of being thrown away each time.
+
+**A real, disclosed limitation, not glossed over**: genuinely
+differentiating all 24 hours needs a baseline that actually spans
+multiple real days -- that takes real elapsed time, not more code. What's
+verified live: real per-hour bucketing populates the correct current
+hour with real data (confirmed against this machine's actual local time,
+not a mock); a second real run correctly accumulated into the same
+hour's bucket (5 samples -> 8, not reset to 3); and `build_thresholds()`
+correctly selects a well-sampled hour's bucket while falling back
+cleanly for hours with no data yet or too few samples to trust.
+Regression tests: `tests/test_thresholds_config.py`,
+`tests/test_baseline_seasonality.py`.
+
 ## A real bug this caught, and the fix
 
 sensor-duo's `classify()` uses `<=`/`>=` at threshold boundaries. Setting

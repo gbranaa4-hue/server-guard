@@ -115,8 +115,16 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
     # channel set depends on which mounts/software-manifest entries exist on
     # THIS machine, so it can't be hardcoded.
     warmup_values = registry.collect_all()
-    thresholds = build_thresholds(list(warmup_values.keys()))
+    channel_names = list(warmup_values.keys())
+    thresholds = build_thresholds(channel_names)
+    current_hour = time.localtime().tm_hour
 
+    # TrendDetector/SpikingDetector both keep a live reference to this same
+    # dict (confirmed by reading sensor_duo's source, not assumed) -- so
+    # mutating its contents in place as the hour changes updates the
+    # detectors' seasonality-aware thresholds without recreating them,
+    # which would lose accumulated trend history and the spiking neurons'
+    # own charge state.
     trend = TrendDetector(thresholds=thresholds)
     spiking = SpikingDetector(thresholds=thresholds)
     store = DetectorStore(db_path=db_path)
@@ -139,6 +147,15 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
     try:
         while True:
             now = time.time()
+
+            new_hour = time.localtime(now).tm_hour
+            if new_hour != current_hour:
+                current_hour = new_hour
+                fresh = build_thresholds(channel_names, current_hour=current_hour)
+                thresholds.clear()
+                thresholds.update(fresh)  # in-place mutation -- see the note above
+                logger.info(f"hour changed to {current_hour}:00 -- refreshed seasonal thresholds")
+
             values = registry.collect_all()
             reading = Reading(timestamp=now, values=values)
 

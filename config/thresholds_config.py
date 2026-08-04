@@ -20,11 +20,17 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Dict, List, Optional, Tuple
 
 from sensor_duo import Range
 
 MEASURED_BASELINE_PATH = os.path.join(os.path.dirname(__file__), "measured_baseline.json")
+
+# A hour-of-day bucket needs at least this many real samples before it's
+# trusted over the flat overall stats -- a bucket with 1-2 samples is
+# noise, not a real seasonal signal. See baseline_measure.py.
+MIN_SAMPLES_PER_HOUR_BUCKET = 3
 
 # Only channels whose "normal" range genuinely depends on this specific
 # machine's workload get a measured statistical threshold -- see
@@ -62,6 +68,21 @@ def _load_measured_baseline() -> dict:
         with open(MEASURED_BASELINE_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
+
+
+def _select_stats_for_hour(measured_entry: dict, current_hour: int) -> dict:
+    """A flat mean+std treats "normal for 9am" the same as "normal for
+    3am" -- wrong for anything with a real daily rhythm. Prefers the
+    current hour's own bucket when baseline_measure.py has collected
+    enough real samples for it (MIN_SAMPLES_PER_HOUR_BUCKET), falling
+    back to the flat overall stats otherwise -- honest about only being
+    as seasonality-aware as the real data actually collected supports,
+    not pretending to know hours it's never seen."""
+    by_hour = measured_entry.get("by_hour", {})
+    hour_stats = by_hour.get(str(current_hour))
+    if hour_stats and hour_stats["n_samples"] >= MIN_SAMPLES_PER_HOUR_BUCKET:
+        return hour_stats
+    return measured_entry
 
 
 # (regex matched against the full "collector.channel" name, Range)
@@ -122,17 +143,23 @@ RULES: List[Tuple[str, Range]] = [
 ]
 
 
-def build_thresholds(channel_names: List[str], measured: Optional[dict] = None) -> Dict[str, Range]:
+def build_thresholds(channel_names: List[str], measured: Optional[dict] = None,
+                      current_hour: Optional[int] = None) -> Dict[str, Range]:
     """measured=None (the default) loads config/measured_baseline.json
     from disk if baseline_measure.py has been run; pass measured={} to
-    force the generic pattern-rule defaults regardless."""
+    force the generic pattern-rule defaults regardless. current_hour=None
+    (the default) uses the real current local hour; pass an explicit
+    0-23 value to test a specific hour's bucket."""
     if measured is None:
         measured = _load_measured_baseline()
+    if current_hour is None:
+        current_hour = time.localtime().tm_hour
 
     thresholds: Dict[str, Range] = {}
     for name in channel_names:
         if name in STATISTICAL_CHANNELS and name in measured:
-            thresholds[name] = _range_from_measurement(measured[name])
+            stats = _select_stats_for_hour(measured[name], current_hour)
+            thresholds[name] = _range_from_measurement(stats)
             continue
 
         matched = Range()

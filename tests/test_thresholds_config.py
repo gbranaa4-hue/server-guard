@@ -57,6 +57,55 @@ def test_measurement_floor_prevents_hairtrigger_on_quiet_channel():
     assert rng.stress_high >= 1.0  # floor engaged, not mean + 2*0.051
 
 
+def test_seasonality_prefers_the_current_hour_bucket_when_well_sampled():
+    """A flat mean+std treats "normal for 9am" the same as "normal for
+    3am" -- wrong for anything with a real daily rhythm. This measured
+    entry says the channel runs much higher at hour 14 (afternoon) than
+    its flat all-day average -- the threshold for hour 14 should reflect
+    THAT, not the flatter global number."""
+    measured = {
+        "sys.cpu_pct": {
+            "mean": 20.0, "std": 2.0,  # flat, all-hours average
+            "by_hour": {
+                "14": {"mean": 60.0, "std": 5.0, "n_samples": 10},  # real afternoon spike
+            },
+        }
+    }
+    thresholds = build_thresholds(["sys.cpu_pct"], measured=measured, current_hour=14)
+    rng = thresholds["sys.cpu_pct"]
+    # spread = max(std=5, abs(mean)*0.1=6, 1.0) = 6 (the floor, not std, dominates here)
+    assert rng.stress_high == 72.0  # 60 + 2*6, the HOUR-14 bucket, not the flat 20+2*2=24
+
+
+def test_seasonality_falls_back_to_flat_stats_for_an_unsampled_hour():
+    """Hour 3 has no bucket at all in this measured entry (the baseline
+    run never happened to sample 3am) -- must fall back to the flat
+    overall stats rather than erroring or inventing a value."""
+    measured = {
+        "sys.cpu_pct": {
+            "mean": 20.0, "std": 2.0,
+            "by_hour": {"14": {"mean": 60.0, "std": 5.0, "n_samples": 10}},
+        }
+    }
+    thresholds = build_thresholds(["sys.cpu_pct"], measured=measured, current_hour=3)
+    rng = thresholds["sys.cpu_pct"]
+    assert rng.stress_high == 24.0  # 20 + 2*2, the flat fallback
+
+
+def test_seasonality_ignores_an_hour_bucket_with_too_few_samples():
+    """A bucket with only 1-2 real samples is noise, not a real seasonal
+    signal -- must fall back to the flat stats rather than trust it."""
+    measured = {
+        "sys.cpu_pct": {
+            "mean": 20.0, "std": 2.0,
+            "by_hour": {"14": {"mean": 90.0, "std": 1.0, "n_samples": 1}},  # too few
+        }
+    }
+    thresholds = build_thresholds(["sys.cpu_pct"], measured=measured, current_hour=14)
+    rng = thresholds["sys.cpu_pct"]
+    assert rng.stress_high == 24.0  # falls back to flat, ignores the 1-sample bucket
+
+
 if __name__ == "__main__":
     test_matches_known_latest_good_value_is_ideal()
     test_unexpected_listening_ports_zero_is_ideal()
@@ -64,4 +113,7 @@ if __name__ == "__main__":
     test_statistical_channel_uses_measured_baseline_when_available()
     test_statistical_channel_falls_back_without_measurement()
     test_measurement_floor_prevents_hairtrigger_on_quiet_channel()
+    test_seasonality_prefers_the_current_hour_bucket_when_well_sampled()
+    test_seasonality_falls_back_to_flat_stats_for_an_unsampled_hour()
+    test_seasonality_ignores_an_hour_bucket_with_too_few_samples()
     print("all tests passed")

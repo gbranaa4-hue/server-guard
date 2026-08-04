@@ -35,6 +35,11 @@ What it adds that polling structurally cannot:
     was structurally invisible to both the socket tripwire (which only
     tracks NEW listening ports) and the scan detector (which only
     tracks probes to UNLISTENED ports) until this was added.
+  - cleartext credential detection (see signatures.py): none of the
+    above look at what's actually being SENT over a connection. HTTP
+    Basic Auth and FTP USER/PASS transmit real credentials in the clear
+    -- a genuine, common vulnerability class this now flags directly by
+    inspecting payload content on inbound connections.
 """
 
 from __future__ import annotations
@@ -44,7 +49,7 @@ from collections import Counter
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 try:
-    from scapy.all import sniff, TCP, IP
+    from scapy.all import sniff, TCP, IP, Raw
     from scapy.error import Scapy_Exception
     from scapy.arch.windows import get_windows_if_list
     SCAPY_AVAILABLE = True
@@ -52,6 +57,8 @@ except ImportError:
     SCAPY_AVAILABLE = False
 
 import psutil
+
+from .signatures import detect_plaintext_credentials
 
 
 def _local_ips() -> Set[str]:
@@ -129,6 +136,8 @@ class PacketCaptureCollector:
         self._scan_src_ips: Set[str] = set()
         self._probed_unlistened_ports: Set[int] = set()
         self._listening_port_attempts: Counter[Tuple[str, int]] = Counter()
+        self._plaintext_credential_hits = 0
+        self._plaintext_credential_src_ips: Set[str] = set()
         self._sniffer_thread: Optional[threading.Thread] = None
         self._sniffer_error: Optional[str] = None
         self._stop = threading.Event()
@@ -142,9 +151,23 @@ class PacketCaptureCollector:
         if not pkt.haslayer(TCP) or not pkt.haslayer(IP):
             return
         tcp = pkt[TCP]
+        ip = pkt[IP]
+
+        # Payload inspection: a real, common vulnerability class that
+        # port/connection-level signals (scan, brute-force) structurally
+        # cannot see, since they never look at what's actually being
+        # SENT over a connection. Checked on every inbound packet with a
+        # payload, not just SYNs -- credentials travel in data packets
+        # sent after the handshake completes, never in the SYN itself.
+        if pkt.haslayer(Raw) and ip.dst in self._local_ips and ip.src not in self._local_ips:
+            signature = detect_plaintext_credentials(bytes(pkt[Raw].load))
+            if signature:
+                with self._lock:
+                    self._plaintext_credential_hits += 1
+                    self._plaintext_credential_src_ips.add(ip.src)
+
         if tcp.flags != "S":  # SYN only, not SYN-ACK/etc -- a connection *attempt*
             return
-        ip = pkt[IP]
         with self._lock:
             self._syn_count += 1  # total SYN volume, any direction -- a workload/health signal
             # Scan-detection only makes sense for INBOUND attempts (someone
@@ -199,11 +222,15 @@ class PacketCaptureCollector:
                 "scanning_src_ips": float(len(self._scan_src_ips)),
                 "max_repeated_conn_attempts": float(max_repeated),
                 "brute_force_src_ips": float(brute_force_src_ips),
+                "plaintext_credential_hits": float(self._plaintext_credential_hits),
+                "plaintext_credential_src_ips": float(len(self._plaintext_credential_src_ips)),
             }
             self._syn_count = 0
             self._scan_src_ips = set()
             self._probed_unlistened_ports = set()
             self._listening_port_attempts = Counter()
+            self._plaintext_credential_hits = 0
+            self._plaintext_credential_src_ips = set()
         return values
 
     def close(self) -> None:

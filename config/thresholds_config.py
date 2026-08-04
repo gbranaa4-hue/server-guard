@@ -100,6 +100,10 @@ RULES: List[Tuple[str, Range]] = [
     # real attack tooling's actual retry rate.
     (r"^pkt\.max_repeated_conn_attempts$", Range(stress_high=5, critical_high=15)),
     (r"^pkt\.brute_force_src_ips$", Range(critical_high=0.5)),
+    # A cleartext credential being sent to us at all is inherently bad --
+    # zero-tolerance, same reasoning as the listening-port tripwire.
+    (r"^pkt\.plaintext_credential_hits$", Range(critical_high=0.5)),
+    (r"^pkt\.plaintext_credential_src_ips$", Range(critical_high=0.5)),
     # Workflow wait-time channels (currently the synthetic demo collector
     # only -- see collectors/workflow_demo.py). Generic customer-service
     # wait-time bands, provisional until real clinic data replaces them.

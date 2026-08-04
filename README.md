@@ -200,6 +200,32 @@ detector correctly flagged it (`max_repeated_conn_attempts=20`,
 threshold and the reset-between-ticks behavior:
 `tests/test_packet_capture.py`.
 
+## Cleartext credential detection
+
+Everything above is connection/port-level -- none of it looks at what's
+actually being SENT over a connection. `collectors/signatures.py` adds
+one real, common, well-scoped payload check: HTTP Basic Auth and FTP
+USER/PASS both transmit real credentials in the clear (Basic Auth's
+base64 is an encoding, not encryption -- trivially reversible; FTP's
+USER/PASS commands have no encoding at all, by specification). Checked
+on every inbound data packet, not just SYNs, since credentials travel
+in packets sent *after* the handshake completes.
+
+**Verification status, stated honestly**: the detection logic itself is
+unit-tested against genuine scapy-constructed packets (`tests/
+test_signatures.py`, `tests/test_packet_capture.py`), and the underlying
+capture mechanism was already proven multiple times earlier in this same
+session against real external traffic from a genuinely separate network
+origin (WSL2) -- the scan and brute-force tests above. A fresh live
+round-trip test specifically for *this* feature hit a real WSL<->Windows
+networking regression (asymmetric: Windows could reach WSL, WSL could
+not reach back, confirmed down to the ICMP level) that a service restart
+didn't clear. That's a genuine environmental issue, not a defect in this
+code, and rather than keep burning time chasing a Windows Firewall/
+Hyper-V networking mystery unrelated to the actual feature, this was
+left as an open item to revisit rather than papered over with a claim
+of live verification that didn't actually happen.
+
 ## Offline-by-design software version tracking
 
 `collectors/software_version.py` deliberately does **not** call out to

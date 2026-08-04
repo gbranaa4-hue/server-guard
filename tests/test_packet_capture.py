@@ -11,7 +11,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scapy.all import IP, TCP
+from scapy.all import IP, TCP, Raw
 
 from collectors.packet_capture import PacketCaptureCollector
 
@@ -26,6 +26,8 @@ def _make_collector(known_ports=None, brute_force_threshold=5):
     c._probed_unlistened_ports = set()
     c._listening_port_attempts = Counter()
     c._brute_force_threshold = brute_force_threshold
+    c._plaintext_credential_hits = 0
+    c._plaintext_credential_src_ips = set()
     c._sniffer_error = None
     c._sniffer_thread = None
     return c
@@ -110,6 +112,36 @@ def test_non_syn_packet_is_ignored():
     assert c._scan_src_ips == set()
 
 
+def test_plaintext_http_basic_auth_is_detected_in_a_non_syn_data_packet():
+    """Credentials travel in data packets sent AFTER the handshake, not
+    in the SYN -- this must be checked regardless of TCP flags."""
+    c = _make_collector(known_ports={80})
+    payload = b"GET /admin HTTP/1.1\r\nAuthorization: Basic YWRtaW46cGFzcw==\r\n\r\n"
+    pkt = IP(src="203.0.113.7", dst="10.0.0.100") / TCP(flags="PA", dport=80, sport=12345) / Raw(load=payload)
+    c._on_packet(pkt)
+    assert c._plaintext_credential_hits == 1
+    assert c._plaintext_credential_src_ips == {"203.0.113.7"}
+
+
+def test_outbound_credential_traffic_is_not_flagged():
+    """Same direction rule as scan detection -- only inbound (someone
+    sending US a cleartext credential) counts, not our own outbound
+    requests carrying our own auth headers."""
+    c = _make_collector(known_ports=set())
+    payload = b"GET / HTTP/1.1\r\nAuthorization: Basic YWRtaW46cGFzcw==\r\n\r\n"
+    pkt = IP(src="10.0.0.100", dst="34.149.66.165") / TCP(flags="PA", dport=443, sport=53605) / Raw(load=payload)
+    c._on_packet(pkt)
+    assert c._plaintext_credential_hits == 0
+
+
+def test_ordinary_traffic_does_not_trigger_credential_detection():
+    c = _make_collector(known_ports={80})
+    payload = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    pkt = IP(src="203.0.113.7", dst="10.0.0.100") / TCP(flags="PA", dport=80, sport=12345) / Raw(load=payload)
+    c._on_packet(pkt)
+    assert c._plaintext_credential_hits == 0
+
+
 def test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list():
     """Regression for a real measured reliability finding: watching every
     auto-discovered interface (9 on the dev machine this was tested on)
@@ -141,6 +173,9 @@ if __name__ == "__main__":
     test_a_few_legitimate_retries_do_not_count_as_brute_force()
     test_counters_reset_between_collect_calls()
     test_non_syn_packet_is_ignored()
+    test_plaintext_http_basic_auth_is_detected_in_a_non_syn_data_packet()
+    test_outbound_credential_traffic_is_not_flagged()
+    test_ordinary_traffic_does_not_trigger_credential_detection()
     test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list()
     test_explicit_iface_list_is_honored_unchanged()
     print("all tests passed")

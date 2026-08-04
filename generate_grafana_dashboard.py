@@ -46,6 +46,8 @@ LABEL_RULES = [
     (r"^pkt\.scanning_src_ips$", lambda m: "Distinct Scanning Source IPs"),
     (r"^pkt\.max_repeated_conn_attempts$", lambda m: "Max Repeated Connection Attempts (brute-force)"),
     (r"^pkt\.brute_force_src_ips$", lambda m: "Brute-Force Source IPs"),
+    (r"^pkt\.plaintext_credential_hits$", lambda m: "Cleartext Credential Sightings"),
+    (r"^pkt\.plaintext_credential_src_ips$", lambda m: "Cleartext Credential Source IPs"),
 ]
 
 PERCENT_CHANNELS = re.compile(r"(_pct$)")

@@ -39,6 +39,7 @@ over.
 - [Real alerting](#real-alerting)
 - [Workflow bottleneck detection + forecast reports](#workflow-bottleneck-detection--forecast-reports)
 - [Reliability: crash recovery, log rotation, real retention](#reliability-crash-recovery-log-rotation-real-retention)
+- [Basic multi-host aggregation](#basic-multi-host-aggregation)
 - [Usage](#usage)
 - [If this ever goes public](#if-this-ever-goes-public)
 
@@ -720,6 +721,47 @@ channels -- a real disk-growth problem over weeks, not hypothetical).
 ```bash
 python supervisor.py -- --interval 5 --retention-days 30   # recommended for continuous operation
 ```
+
+## Basic multi-host aggregation
+
+Every host runs its own independent `guard.py` against its own local
+`server_guard.db` -- true everywhere else in this document. For a small
+multi-server site (a reception PC, a lab server, a file server), an
+operator still wants one combined view instead of opening N separate
+reports or N separate Grafana instances. `generate_fleet_report.py` reads
+each configured host's SQLite file over a plain filesystem path --
+typically a Windows UNC path or mapped drive to that host's existing file
+share -- and renders one combined Markdown report:
+
+```bash
+cp config/hosts.example.json config/hosts.json  # point at each host's real db_path
+python generate_fleet_report.py
+```
+
+Per-host reads are isolated the same way `CollectorRegistry` isolates
+per-collector failures elsewhere in this project: one host with a down
+share, a wrong path, or a locked database becomes one line under
+"Unreachable Hosts" in the report, not a crash that hides every other
+host's real data. Verified live against a deliberately nonexistent
+second `db_path` alongside the real production `server_guard.db`: the
+real host reported correctly (fleet status `CRITICAL`, matching its
+actual worst channel), the missing host was listed as unreachable with
+its real error message, and -- checked explicitly, since `sqlite3.connect()`
+silently creates an empty file at a missing path if you let it try --
+confirmed no stray `.db` file was created for the path that doesn't exist.
+
+**A real, disclosed scope boundary, not an oversight**: this is
+deliberately *not* a push-based fleet agent. There is no listener, no
+agent-to-collector network protocol, and no central always-on
+aggregation service -- adding one would mean opening an inbound network
+port on every monitored machine, directly against this project's
+monitoring-only, minimal-attack-surface design (see
+["Not included, on purpose"](#not-included-on-purpose)). "Basic"
+aggregation here means exactly what it says:
+point this at N already-reachable SQLite files over an existing share
+and get one combined view. True fleet high availability and live push
+telemetry are a materially bigger, different system and are not
+attempted here -- flagged honestly as out of scope rather than half-built.
 
 ## Usage
 

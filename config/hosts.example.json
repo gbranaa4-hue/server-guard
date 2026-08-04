@@ -1,0 +1,11 @@
+{
+  "_comment": "Basic multi-host aggregation: list every machine's server_guard.db this operator can reach over an existing file share or mapped drive. Copy to config/hosts.json and fill in real paths -- e.g. a UNC path like \\\\RECEPTION-PC\\c$\\server-guard\\server_guard.db, or a local path if generating the report on the same machine one of the DBs lives on. Each host runs its own independent guard.py -- this file only tells generate_fleet_report.py where to go look, it does not change how any host collects or stores its own data.",
+  "hosts": [
+    {"name": "reception-pc", "db_path": "\\\\RECEPTION-PC\\c$\\server-guard\\server_guard.db"},
+    {"name": "lab-server", "db_path": "\\\\LAB-SERVER\\c$\\server-guard\\server_guard.db"}
+  ],
+  "labels": {
+    "sys.cpu_pct": "CPU %",
+    "sys.mem_pct": "Memory %"
+  }
+}

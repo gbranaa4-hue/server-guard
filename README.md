@@ -701,6 +701,31 @@ channels -- a real disk-growth problem over weeks, not hypothetical).
   correct backoff schedule each time, then gave up cleanly after exactly
   5 failures; separately confirmed it does *not* restart a clean (exit
   0) run.
+- **`heartbeat_watchdog.py`** -- closes the real gap the crash recovery
+  above doesn't: a HUNG process, not a crashed one. Exit-code-based
+  recovery does nothing if `guard.py`'s tick loop blocks forever inside
+  a single collector call (a network call that never times out, a
+  subprocess that never returns) -- the process is technically still
+  "running", it just never produces another reading, and every Grafana
+  panel goes quietly stale with nothing in the logs to explain why.
+  `supervisor.py` now polls instead of blocking on `proc.wait()`: once
+  past a startup grace period, it checks the real `MAX(timestamp)` in
+  `readings` against a threshold sized from the actual `--interval`
+  guard.py was launched with (`4x` that interval, floored at 30s so a
+  fast interval doesn't false-trigger on ordinary jitter). A stale
+  reading means the process is terminated and fed into the exact same
+  backoff/crash-loop protection already used for crashes, so a hang
+  that recurs immediately still trips the "give up, a human should
+  look" safeguard instead of restart-looping forever. **Verified with a
+  real subprocess, not a mock**: a fake "guard.py" that logs one
+  reading then blocks forever was correctly detected as stale,
+  terminated, and restarted -- the replacement process (same script,
+  behaves differently on its second real launch) then ran to a normal
+  clean exit. Separately confirmed a continuously-healthy process is
+  never killed. Disclosed limitation: this only proves the *tick loop*
+  is still moving, not that any individual collector's data is
+  correct -- per-collector failures are still handled separately by
+  `CollectorRegistry`'s existing error isolation.
 - **`logging_setup.py`** -- replaces raw `print()` with a rotating file
   handler (10MB x 5 backups, ~60MB ceiling instead of unbounded) plus
   console output, configured inside `run()` rather than at import time

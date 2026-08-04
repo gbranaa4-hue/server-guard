@@ -110,6 +110,12 @@ RULES: List[Tuple[str, Range]] = [
     # 30/20/10/1 days) -- provisional, not measured against this specific
     # deployment's actual renewal process/lead time.
     (r"^cert\..*_days_until_expiry$", Range(critical_low=7, stress_low=30)),
+    # Physical-disk predictive-failure flag (1=healthy, 0=not) -- same
+    # zero-tolerance shape as _matches_known_latest$. No "stress" band:
+    # Windows' own health rollup doesn't expose a graded warning state
+    # at this account's permission level (see disk_reliability.py), just
+    # a binary healthy/not, so critical is the only real signal available.
+    (r"^smart\..*_healthy$", Range(critical_low=0.5)),
     # Real inbound-scan signal (SYNs at ports we're not listening on) --
     # a genuinely different capability than the socket-table tripwire
     # above, since that one only ever sees OUR OWN listening ports, never

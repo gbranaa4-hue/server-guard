@@ -1,5 +1,6 @@
 from .base import Collector, CollectorRegistry, CollectorError
 from .disk import DiskHealthCollector
+from .disk_reliability import DiskReliabilityCollector
 from .network import NetworkHealthCollector, load_baseline_ports
 from .system import SystemHealthCollector
 from .software_version import SoftwareVersionCollector
@@ -11,6 +12,7 @@ __all__ = [
     "CollectorRegistry",
     "CollectorError",
     "DiskHealthCollector",
+    "DiskReliabilityCollector",
     "NetworkHealthCollector",
     "load_baseline_ports",
     "SystemHealthCollector",

@@ -31,6 +31,7 @@ over.
 - [Outbound C2 beacon detection](#outbound-c2-beacon-detection)
 - [Offline-by-design software version tracking](#offline-by-design-software-version-tracking)
 - [TLS certificate expiry monitoring](#tls-certificate-expiry-monitoring)
+- [Physical-disk reliability / predictive-failure monitoring](#physical-disk-reliability--predictive-failure-monitoring)
 - [Verified (real, not simulated)](#verified-real-not-simulated)
 - [Where thresholds actually come from](#where-thresholds-actually-come-from)
 - [A real bug this caught, and the fix](#a-real-bug-this-caught-and-the-fix)
@@ -415,6 +416,57 @@ Let's Encrypt's own reminders start at 30/20/10/1 days -- provisional,
 not measured against this specific deployment's actual renewal lead
 time). An already-expired cert reports a real negative day-count
 rather than erroring, since that's a meaningful value, not a failure.
+
+## Physical-disk reliability / predictive-failure monitoring
+
+`collectors/disk.py` already tracks capacity and throughput, but
+neither predicts a drive dying -- that needs SMART-derived reliability
+data, and nothing here covered that until `disk_reliability.py`. This
+is the other half of "predict maintenance" this project was retargeted
+for from the start.
+
+**A real, disclosed constraint hit while building this, not an
+oversight**: the granular SMART counters (PowerShell's
+`Get-StorageReliabilityCounter`, and the classic
+`MSStorageDriver_FailurePredictStatus` WMI class) both require
+elevation this account doesn't have -- confirmed directly against this
+machine, not assumed (`Access to a CIM resource was not available to
+the client` / `Access denied` respectively). The same kind of Access
+Denied wall Windows Task Scheduler registration and Grafana's
+file-based provisioning hit earlier in this project.
+
+What DOES work without elevation, verified directly against this
+machine's two real physical drives: `Get-PhysicalDisk`'s
+`HealthStatus`/`OperationalStatus` -- Windows Storage Management's own
+health rollup, which internally does incorporate SMART predictive-
+failure data even though this collector can't read the raw attribute
+values (temperature, reallocated sector count, wear) itself. Coarser
+than raw SMART -- a binary healthy/not per drive, no trend data -- but
+a real, actionable signal, not nothing. Falls back to the classic
+`Win32_DiskDrive.Status` WMI property (also confirmed working
+unelevated) if `Get-PhysicalDisk` itself isn't available, e.g. an older
+Windows Server or a Server Core install without the Storage Management
+module -- the same fallback-on-missing-capability shape this project
+already uses elsewhere (`ast_chunker.py` falling back to fixed-window
+chunking, packet capture skipping cleanly without Npcap).
+
+**A real edge case caught before it became a bug**: PowerShell's
+`ConvertTo-Json` returns a bare JSON object, not a 1-element array,
+when there's exactly one result -- confirmed directly against this
+project's real output, not assumed, and handled explicitly (a
+single-disk deployment, plausible for a smaller vet-hospital server,
+would otherwise have silently iterated over object *keys* instead of
+disk *entries*).
+
+**Verified live against this machine's two real disks**, not
+synthetic data: `collect()` returned `Samsung_SSD_850_EVO_500GB_healthy:
+1.0` and `Samsung_SSD_980_1TB_healthy: 1.0`, matching a direct
+PowerShell check confirming both report `Healthy`/`OK`. The
+`Win32_DiskDrive` fallback path verified separately by forcing the
+primary path to fail. Zero-tolerance threshold (`smart.*_healthy`,
+critical below 1) -- no "stress" band, since Windows' own health rollup
+doesn't expose a graded warning state at this account's permission
+level, just binary healthy/not.
 
 ## Verified (real, not simulated)
 

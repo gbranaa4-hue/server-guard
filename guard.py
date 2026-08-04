@@ -28,6 +28,7 @@ from sensor_duo import Reading, TrendDetector, SpikingDetector, DetectorStore
 from collectors import (
     CollectorRegistry,
     DiskHealthCollector,
+    DiskReliabilityCollector,
     NetworkHealthCollector,
     SystemHealthCollector,
     SoftwareVersionCollector,
@@ -64,6 +65,7 @@ logger = logging.getLogger("server-guard")
 def build_registry(learn_baseline: bool, demo_workflow: bool = False) -> CollectorRegistry:
     registry = CollectorRegistry()
     registry.register(DiskHealthCollector())
+    registry.register(DiskReliabilityCollector())
     registry.register(
         NetworkHealthCollector(baseline_path=DEFAULT_BASELINE_PATH, learn_baseline=learn_baseline)
     )

@@ -36,10 +36,13 @@ from collectors import (
     load_baseline_ports,
 )
 from config.thresholds_config import build_thresholds
+from alerting import AlertStateTracker
+from alerting.config_loader import load_notifiers, load_min_renotify_interval
 
 BASE_DIR = os.path.dirname(__file__)
 DEFAULT_BASELINE_PATH = os.path.join(BASE_DIR, "config", "network_baseline.json")
 DEFAULT_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "software_versions.json")
+DEFAULT_ALERTING_PATH = os.path.join(BASE_DIR, "config", "alerting.json")
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "server_guard.db")
 
 
@@ -95,6 +98,13 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
     spiking = SpikingDetector(thresholds=thresholds)
     store = DetectorStore(db_path=db_path)
 
+    notifiers = load_notifiers(DEFAULT_ALERTING_PATH)
+    alert_tracker = AlertStateTracker(
+        min_renotify_interval_s=load_min_renotify_interval(DEFAULT_ALERTING_PATH)
+    )
+    if notifiers.names:
+        print(f"[server-guard] alert notifiers active: {notifiers.names}")
+
     print(f"[server-guard] channels: {sorted(thresholds.keys())}")
     if learn_baseline:
         print("[server-guard] learning network baseline this run -- "
@@ -118,6 +128,16 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
                     if alerted:
                         print(f"[{detector_name}] {pred.status.upper()} {pred.channel}="
                               f"{pred.current_value} {pred.explanation}")
+
+                    transition = alert_tracker.check(detector_name, pred.channel, pred.status)
+                    if transition and notifiers.names:
+                        notifiers.notify_all(
+                            title=f"{pred.channel} ({detector_name})",
+                            message=f"{transition}: {pred.explanation}",
+                            severity=pred.status,
+                        )
+                        for err in notifiers.last_errors:
+                            print(f"[server-guard] notifier '{err.notifier_name}' failed: {err.error}")
 
             for err in registry.last_errors:
                 print(f"[server-guard] collector '{err.collector_name}' failed: {err.error}")

@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy this to config/alerting.json (gitignored) and fill in real values. A webhook URL is itself bearer-token-like -- anyone with it can post -- so it never gets committed.",
+
+  "webhooks": [
+    {"_note": "ntfy.sh needs zero signup -- pick a private, hard-to-guess topic name, since anyone who knows it can read your alerts", "url": "https://ntfy.sh/REPLACE_WITH_A_PRIVATE_TOPIC_NAME", "style": "ntfy"},
+    {"_note": "Slack/Discord/Mattermost incoming webhooks all accept this same shape", "url": "https://hooks.slack.com/services/REPLACE/WITH/REAL", "style": "slack"}
+  ],
+
+  "email": {
+    "_note": "remove this whole section if you only want webhook alerts",
+    "smtp_host": "smtp.example.com",
+    "smtp_port": 587,
+    "username": "REPLACE_ME",
+    "password": "REPLACE_ME",
+    "from_addr": "server-guard@example.com",
+    "to_addrs": ["oncall@example.com"],
+    "use_tls": true
+  },
+
+  "min_renotify_interval_s": 60
+}

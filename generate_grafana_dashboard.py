@@ -41,6 +41,9 @@ LABEL_RULES = [
     (r"^swver\.(\w+)_matches_known_latest$", lambda m: f"{m.group(1)}: Version Matches Known-Latest"),
     (r"^swver\.(\w+)_baseline_age_days$", lambda m: f"{m.group(1)}: Days Since Version Check"),
     (r"^swver\.(\w+)_check_failed$", lambda m: f"{m.group(1)}: Version Check Failed"),
+    (r"^pkt\.syn_packets$", lambda m: "SYN Packets (volume)"),
+    (r"^pkt\.unexpected_port_probes$", lambda m: "Inbound Port Probes (scan detection)"),
+    (r"^pkt\.scanning_src_ips$", lambda m: "Distinct Scanning Source IPs"),
 ]
 
 PERCENT_CHANNELS = re.compile(r"(_pct$)")

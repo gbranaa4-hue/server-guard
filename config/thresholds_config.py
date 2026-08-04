@@ -93,6 +93,10 @@ RULES: List[Tuple[str, Range]] = [
     # zero-tolerance would just alert nonstop. Provisional, not measured.
     (r"^pkt\.unexpected_port_probes$", Range(stress_high=3, critical_high=10)),
     (r"^pkt\.scanning_src_ips$", Range(stress_high=2, critical_high=5)),
+    # Workflow wait-time channels (currently the synthetic demo collector
+    # only -- see collectors/workflow_demo.py). Generic customer-service
+    # wait-time bands, provisional until real clinic data replaces them.
+    (r"^wf\.\w+_wait_min$", Range(stress_high=20, critical_high=40)),
 ]
 
 

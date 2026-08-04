@@ -259,6 +259,78 @@ No automatic blocking, firewalling, or process-killing. This is a
 monitoring/alerting system. Taking action on what it finds is a separate,
 higher-risk decision that belongs with a human, not this loop.
 
+## Real alerting
+
+Alerts existed only as a console print + a Grafana panel until this was
+added -- meaning nobody gets paged unless they're staring at the
+dashboard, the single biggest practical gap vs. any commercial
+monitoring tool. `alerting/` adds real notification delivery:
+
+- `WebhookNotifier` -- one HTTP POST, three real payload shapes:
+  Slack/Discord/Mattermost-compatible, ntfy.sh (free, zero signup), or a
+  generic JSON shape for a custom endpoint.
+- `EmailNotifier` -- stdlib-only SMTP, no new dependency.
+- `AlertStateTracker` -- both detectors fire a status on *every* tick a
+  channel stays out of range (proven earlier: a sustained critical fires
+  every 5 seconds forever). Wiring that straight to a webhook would mean
+  one notification per tick per problem. This only notifies on a genuine
+  transition (including recovery back to ideal), plus a cooldown
+  backstop against a value flapping right on a threshold boundary.
+
+Config-driven (`config/alerting.json`, gitignored -- copy
+`config/alerting.example.json`). This process never handles credentials
+beyond what the operator puts in their own local file; a webhook URL is
+itself bearer-token-like, so it's never committed either.
+
+**Verified live**, not just unit-tested: sent a real notification to a
+throwaway ntfy.sh topic and confirmed via ntfy's own API that the exact
+title/message/priority arrived server-side. Then ran the *actual*
+guard.py pipeline (config load -> real transition detection -> HTTP
+POST) end to end and confirmed exactly one notification per real
+transition for both the trend and spiking detectors -- zero spam,
+despite the process having already run several ticks past each
+condition's onset.
+
+## Workflow bottleneck detection + forecast reports
+
+No new detection engine -- `workflow/identify_bottleneck()` just ranks
+the same `TrendDetector` predictions everything else already produces,
+comparing a set of "stage" channels (e.g. wait-time-per-stage in a
+process) by status, then soonest-projected threshold crossing, then
+fastest-worsening trend. `reports/forecast_report.py` renders a
+standalone Markdown report from the real data in `server_guard.db` --
+readable by someone who never opens Grafana. Run with:
+
+```bash
+cp config/workflow_stages.example.json config/workflow_stages.json  # point at real stage channels
+python generate_report.py
+```
+
+**No real workflow data exists yet** (same gap as the software-version
+manifest -- the operator can't provide it right now), so
+`collectors/workflow_demo.py` generates clearly-labeled SYNTHETIC data
+modeled on a 4-stage patient visit (check-in/exam/lab/checkout wait
+times), engineered so exactly one stage (lab) has a genuine worsening
+trend while the others stay flat -- so the ranking logic can be checked
+against a known right answer. Gated behind `guard.py --demo-workflow`
+(off by default) and written to a *separate* database in testing,
+specifically so synthetic numbers can never silently end up alongside
+real health/security data.
+
+**A real, non-obvious finding from testing this**: a 24-second test run
+(12 ticks) produced a `+180/hour` trend estimate for the engineered
+bottleneck -- wildly unstable, since extrapolating a slope measured over
+seconds up to an hourly rate amplifies any short-term noise by ~150x.
+Running the identical setup for 3 minutes instead converged to
+`+89.1/hour` -- matching the actual engineered rate (90/hour) to within
+1%, and the resulting "time to threshold" math checked out exactly
+against the real current value. The bottleneck-*ranking* was correct
+even in the noisy 24-second run (the engineered stage still won), but
+the specific numbers displayed weren't trustworthy yet. Real takeaway:
+`hours_to_threshold`/`trend_per_hour` need a meaningful real time window
+behind them before the numbers themselves should be trusted, even though
+the detector's relative ranking can be reliable sooner.
+
 ## Usage
 
 ```bash

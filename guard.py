@@ -35,6 +35,7 @@ from collectors import (
     PacketCaptureUnavailable,
     load_baseline_ports,
 )
+from collectors.workflow_demo import WorkflowDemoCollector
 from config.thresholds_config import build_thresholds
 from alerting import AlertStateTracker
 from alerting.config_loader import load_notifiers, load_min_renotify_interval
@@ -46,7 +47,7 @@ DEFAULT_ALERTING_PATH = os.path.join(BASE_DIR, "config", "alerting.json")
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "server_guard.db")
 
 
-def build_registry(learn_baseline: bool) -> CollectorRegistry:
+def build_registry(learn_baseline: bool, demo_workflow: bool = False) -> CollectorRegistry:
     registry = CollectorRegistry()
     registry.register(DiskHealthCollector())
     registry.register(
@@ -55,6 +56,13 @@ def build_registry(learn_baseline: bool) -> CollectorRegistry:
     registry.register(SystemHealthCollector())
     if os.path.exists(DEFAULT_MANIFEST_PATH):
         registry.register(SoftwareVersionCollector(manifest_path=DEFAULT_MANIFEST_PATH))
+
+    # SYNTHETIC demo data, off by default -- never register this in a
+    # real deployment. Gated by an explicit flag specifically so fake
+    # workflow numbers can't silently end up alongside real health/
+    # security data in server_guard.db. See collectors/workflow_demo.py.
+    if demo_workflow:
+        registry.register(WorkflowDemoCollector())
 
     # Needs Npcap (a real kernel driver) installed to actually capture
     # anything -- if it's missing, skip it rather than crash the whole
@@ -84,9 +92,10 @@ def _ensure_wal_mode(db_path: str) -> None:
     conn.close()
 
 
-def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 0) -> None:
+def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 0,
+        demo_workflow: bool = False) -> None:
     _ensure_wal_mode(db_path)
-    registry = build_registry(learn_baseline)
+    registry = build_registry(learn_baseline, demo_workflow=demo_workflow)
 
     # One warm-up tick to discover real channel names before wiring detectors --
     # channel set depends on which mounts/software-manifest entries exist on
@@ -159,5 +168,8 @@ if __name__ == "__main__":
     parser.add_argument("--learn-baseline", action="store_true",
                          help="record current listening ports as the expected baseline")
     parser.add_argument("--max-ticks", type=int, default=0, help="0 = run forever")
+    parser.add_argument("--demo-workflow", action="store_true",
+                         help="register the SYNTHETIC workflow-bottleneck demo collector "
+                              "(off by default -- never use in a real deployment)")
     args = parser.parse_args()
-    run(args.interval, args.db, args.learn_baseline, args.max_ticks)
+    run(args.interval, args.db, args.learn_baseline, args.max_ticks, demo_workflow=args.demo_workflow)

@@ -1,0 +1,15 @@
+{
+  "_comment": "Which channels represent comparable workflow stages, and their display labels. Copy to config/workflow_stages.json and point at whatever real collector's channels represent your actual workflow once one exists -- the demo collector's wf.* channels are just the placeholder proving the mechanism works.",
+  "stage_channels": [
+    "wf.checkin_wait_min",
+    "wf.exam_wait_min",
+    "wf.lab_wait_min",
+    "wf.checkout_wait_min"
+  ],
+  "labels": {
+    "wf.checkin_wait_min": "Check-in Wait (min)",
+    "wf.exam_wait_min": "Exam Wait (min)",
+    "wf.lab_wait_min": "Lab Wait (min)",
+    "wf.checkout_wait_min": "Checkout Wait (min)"
+  }
+}

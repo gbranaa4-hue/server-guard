@@ -6,6 +6,13 @@ server_guard.db-shm
 config/network_baseline.json
 config/measured_baseline.json
 config/alerting.json
+config/workflow_stages.json
 grafana_dashboard.json
 grafana_dashboard.txt
 guard_run.log
+demo_run.log
+demo_workflow_test.db
+demo_workflow_test.db-wal
+demo_workflow_test.db-shm
+demo_forecast_report.md
+forecast_report.md

@@ -1,3 +1,4 @@
 psutil>=7.0
 sensor-duo>=0.2.0
 scapy>=2.7.0
+pywin32>=306

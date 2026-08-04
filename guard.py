@@ -33,6 +33,7 @@ from collectors import (
     SystemHealthCollector,
     SoftwareVersionCollector,
     CertExpiryCollector,
+    EventLogCollector,
     PacketCaptureCollector,
     PacketCaptureUnavailable,
     load_baseline_ports,
@@ -66,6 +67,7 @@ def build_registry(learn_baseline: bool, demo_workflow: bool = False) -> Collect
     registry = CollectorRegistry()
     registry.register(DiskHealthCollector())
     registry.register(DiskReliabilityCollector())
+    registry.register(EventLogCollector())
     registry.register(
         NetworkHealthCollector(baseline_path=DEFAULT_BASELINE_PATH, learn_baseline=learn_baseline)
     )

@@ -116,6 +116,14 @@ RULES: List[Tuple[str, Range]] = [
     # at this account's permission level (see disk_reliability.py), just
     # a binary healthy/not, so critical is the only real signal available.
     (r"^smart\..*_healthy$", Range(critical_low=0.5)),
+    # New Error-type Windows Event Log entries since the last tick. A
+    # handful between ticks can be normal background noise (a flaky
+    # driver, one benign app crash); several is worth a look; many in
+    # one window suggests something is actively breaking. Provisional,
+    # not measured against a real quiet vet-hospital server's actual
+    # background error rate -- this dev machine's noise floor isn't
+    # representative of that target deployment.
+    (r"^eventlog\.\w+_new_errors$", Range(stress_high=5, critical_high=20)),
     # Real inbound-scan signal (SYNs at ports we're not listening on) --
     # a genuinely different capability than the socket-table tripwire
     # above, since that one only ever sees OUR OWN listening ports, never

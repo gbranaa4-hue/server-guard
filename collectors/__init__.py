@@ -5,6 +5,7 @@ from .network import NetworkHealthCollector, load_baseline_ports
 from .system import SystemHealthCollector
 from .software_version import SoftwareVersionCollector
 from .cert_expiry import CertExpiryCollector
+from .event_log import EventLogCollector
 from .packet_capture import PacketCaptureCollector, PacketCaptureUnavailable, discover_real_ifaces
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "SystemHealthCollector",
     "SoftwareVersionCollector",
     "CertExpiryCollector",
+    "EventLogCollector",
     "PacketCaptureCollector",
     "PacketCaptureUnavailable",
     "discover_real_ifaces",

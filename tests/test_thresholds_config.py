@@ -49,6 +49,14 @@ def test_smart_healthy_flag_zero_tolerance():
     assert classify(0.0, rng) == "critical"
 
 
+def test_eventlog_new_errors_thresholds():
+    thresholds = build_thresholds(["eventlog.system_new_errors"])
+    rng = thresholds["eventlog.system_new_errors"]
+    assert classify(0.0, rng) == "ideal"
+    assert classify(8.0, rng) == "stress"
+    assert classify(25.0, rng) == "critical"
+
+
 def test_statistical_channel_uses_measured_baseline_when_available():
     measured = {"net.sent_mb_per_s": {"mean": 10.0, "std": 1.0}}
     thresholds = build_thresholds(["net.sent_mb_per_s"], measured=measured)
@@ -128,6 +136,7 @@ if __name__ == "__main__":
     test_unmatched_channel_gets_empty_range()
     test_cert_days_until_expiry_lower_is_worse()
     test_smart_healthy_flag_zero_tolerance()
+    test_eventlog_new_errors_thresholds()
     test_statistical_channel_uses_measured_baseline_when_available()
     test_statistical_channel_falls_back_without_measurement()
     test_measurement_floor_prevents_hairtrigger_on_quiet_channel()

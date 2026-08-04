@@ -32,6 +32,7 @@ over.
 - [Offline-by-design software version tracking](#offline-by-design-software-version-tracking)
 - [TLS certificate expiry monitoring](#tls-certificate-expiry-monitoring)
 - [Physical-disk reliability / predictive-failure monitoring](#physical-disk-reliability--predictive-failure-monitoring)
+- [Windows Event Log monitoring](#windows-event-log-monitoring)
 - [Verified (real, not simulated)](#verified-real-not-simulated)
 - [Where thresholds actually come from](#where-thresholds-actually-come-from)
 - [A real bug this caught, and the fix](#a-real-bug-this-caught-and-the-fix)
@@ -467,6 +468,56 @@ primary path to fail. Zero-tolerance threshold (`smart.*_healthy`,
 critical below 1) -- no "stress" band, since Windows' own health rollup
 doesn't expose a graded warning state at this account's permission
 level, just binary healthy/not.
+
+## Windows Event Log monitoring
+
+`collectors/event_log.py` watches the System and Application event
+logs for new Error-type entries -- a real health signal nothing else
+here covers: a service crash, a driver fault, an unexpected application
+error, none of which show up in psutil-level CPU/memory/disk metrics
+at all.
+
+**Deliberately does not read the Security log** -- confirmed directly,
+not assumed, that this needs `SeSecurityPrivilege`
+(`Get-WinEvent -LogName Security` throws
+`UnauthorizedAccessException: Attempted to perform an unauthorized
+operation` on this account), the same class of Access Denied wall
+Task Scheduler registration, Grafana's file-based provisioning, and the
+granular SMART counters above all hit. System and Application logs are
+readable without any special privilege -- confirmed directly too.
+
+Uses `pywin32`'s classic `win32evtlog.ReadEventLog` API rather than
+shelling out to PowerShell's `Get-WinEvent` -- this collector runs
+every tick (every few seconds by default), and a fresh `powershell.exe`
+process every tick forever is real, avoidable overhead the native API
+doesn't have. Tracks the last-seen record number per log across ticks
+so each tick only counts genuinely NEW events, not the same history
+over and over; the first tick after startup establishes a baseline and
+reports 0, the same shape `disk.py`'s I/O-rate channels already use for
+the same reason (no prior sample to diff against yet).
+
+**A real bug caught by testing, not assumed away**: `ReadEventLog`
+returns records in batches (~10 at a time), not one at a time. The
+`max_records_per_tick` safety cap (against a huge burst between ticks)
+originally checked only *between* batches -- a single batch could blow
+straight past a small cap before the check ever fired. A real test
+(writing 10 genuine error events with a cap of 5) caught it returning
+10 instead of ≤5; fixed by checking the cap inside the per-record loop.
+
+**Verified with real, genuine event log entries**, not mocked --
+`win32evtlogutil.ReportEvent` writes actual entries under the existing
+`Application` source, no new source registration needed: confirmed the
+first-tick baseline reports 0 regardless of pre-existing history,
+confirmed writing N real error events afterward is counted as exactly
+N, confirmed non-error (Information-level) events are correctly
+excluded, and confirmed the batch-spanning cap fix holds. Only
+`EVENTLOG_ERROR_TYPE` is counted -- the classic API this collector uses
+doesn't expose the newer Critical/Error/Warning "Level" distinction
+`Get-WinEvent` has, a disclosed simplification, not an oversight.
+Provisional threshold (`stress` at 5+ new errors, `critical` at 20+
+between ticks) -- not measured against a real quiet vet-hospital
+server's actual background error rate, since this dev machine's noise
+floor isn't representative of that target deployment.
 
 ## Verified (real, not simulated)
 

@@ -1,0 +1,11 @@
+{
+  "_comment": "TLS certificate expiry monitoring. Copy to config/cert_targets.json and point at real targets -- this collector is skipped entirely if that file doesn't exist. Certificate TRUST is deliberately not checked (no hostname/CA validation) -- only expiry, so this works against self-signed/internal-CA certs a LAN practice-management server is likely to use. Needs the openssl CLI on PATH. Only list a host here if it actually serves TLS -- this project's own local Grafana runs plain HTTP by default (no cert to check), which is a real, correctly-isolated per-target failure if listed here, not a bug.",
+
+  "hosts": [
+    {"_note": "checks the cert actually being served right now over a live TLS handshake -- replace with a real HTTPS-serving host on your network", "name": "practice-mgmt-portal", "host": "practice.example.local", "port": 443}
+  ],
+
+  "files": [
+    {"_note": "checks a local PEM cert file directly, without needing network reachability to the service", "name": "internal-ca-cert", "path": "C:\\path\\to\\cert.pem"}
+  ]
+}

@@ -33,6 +33,15 @@ def test_unmatched_channel_gets_empty_range():
     assert classify(999999.0, rng) == "ideal"
 
 
+def test_cert_days_until_expiry_lower_is_worse():
+    thresholds = build_thresholds(["cert.grafana_days_until_expiry"])
+    rng = thresholds["cert.grafana_days_until_expiry"]
+    assert classify(90.0, rng) == "ideal"
+    assert classify(20.0, rng) == "stress"
+    assert classify(3.0, rng) == "critical"
+    assert classify(-5.0, rng) == "critical"  # already expired
+
+
 def test_statistical_channel_uses_measured_baseline_when_available():
     measured = {"net.sent_mb_per_s": {"mean": 10.0, "std": 1.0}}
     thresholds = build_thresholds(["net.sent_mb_per_s"], measured=measured)
@@ -110,6 +119,7 @@ if __name__ == "__main__":
     test_matches_known_latest_good_value_is_ideal()
     test_unexpected_listening_ports_zero_is_ideal()
     test_unmatched_channel_gets_empty_range()
+    test_cert_days_until_expiry_lower_is_worse()
     test_statistical_channel_uses_measured_baseline_when_available()
     test_statistical_channel_falls_back_without_measurement()
     test_measurement_floor_prevents_hairtrigger_on_quiet_channel()

@@ -104,6 +104,12 @@ RULES: List[Tuple[str, Range]] = [
     (r"_matches_known_latest$", Range(critical_low=0.5)),
     (r"_baseline_age_days$", Range(stress_high=90, critical_high=180)),
     (r"_check_failed$", Range(stress_high=0.5)),
+    # Certificate expiry: lower is worse, same shape as disk free-space
+    # tripwires above. 30/7-day bands match the common real-world
+    # renewal-reminder cadence (Let's Encrypt's own reminders start at
+    # 30/20/10/1 days) -- provisional, not measured against this specific
+    # deployment's actual renewal process/lead time.
+    (r"^cert\..*_days_until_expiry$", Range(critical_low=7, stress_low=30)),
     # Real inbound-scan signal (SYNs at ports we're not listening on) --
     # a genuinely different capability than the socket-table tripwire
     # above, since that one only ever sees OUR OWN listening ports, never

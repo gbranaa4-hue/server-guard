@@ -30,6 +30,7 @@ over.
 - [Stealth scan detection (NULL / FIN / XMAS)](#stealth-scan-detection-null--fin--xmas)
 - [Outbound C2 beacon detection](#outbound-c2-beacon-detection)
 - [Offline-by-design software version tracking](#offline-by-design-software-version-tracking)
+- [TLS certificate expiry monitoring](#tls-certificate-expiry-monitoring)
 - [Verified (real, not simulated)](#verified-real-not-simulated)
 - [Where thresholds actually come from](#where-thresholds-actually-come-from)
 - [A real bug this caught, and the fix](#a-real-bug-this-caught-and-the-fix)
@@ -359,6 +360,61 @@ manifest would take (practice-management system, DICOM/imaging viewer,
 backup agent, OS patch level). None of those entries are real data --
 copy the file and fill in the real check commands and versions once
 they're available.
+
+## TLS certificate expiry monitoring
+
+A certificate silently expiring is one of the single most common real
+causes of an otherwise-healthy server going down -- fine for months,
+then broken the moment nobody renewed it, often noticed only when a
+user complains. `collectors/cert_expiry.py` is the "predict maintenance"
+signal this project was retargeted for from the start, applied to
+certs specifically. Skipped entirely if `config/cert_targets.json`
+doesn't exist -- copy `config/cert_targets.example.json` to enable it.
+
+Two independent ways to check a cert, config-driven (like
+`software_version.py`), not hardcoded:
+
+- **`hosts`** -- a live TLS handshake against `host:port`, checking what's
+  *actually being served right now*. Catches a real, common failure mode
+  a file-only check would miss: a renewed cert file that was never
+  reloaded into the running service.
+- **`files`** -- a local PEM file path, for a cert that isn't necessarily
+  reachable over the network from this host.
+
+**Deliberately does not verify certificate trust** (no hostname check,
+no CA chain validation) -- that's a separate concern from what this
+collector measures. A vet-hospital LAN's internal practice-management
+server is very likely self-signed or signed by an internal CA this
+machine's default trust store doesn't know about; requiring full
+verification would make this collector useless for exactly the
+deployment it exists for. Confirmed this matters, not just assumed: a
+real stdlib gotcha caught while building it -- `ssl.getpeercert()`
+returns an **empty dict** when `verify_mode=CERT_NONE`, even though the
+raw certificate bytes were received (confirmed directly against a real
+`self-signed.badssl.com` handshake, both with `verify_mode=CERT_NONE`
+returning `{}` and the binary form returning real cert bytes). Worked
+around by handing the raw DER bytes to the local `openssl` CLI to parse
+`notAfter` -- the same subprocess-based external-tool pattern
+`software_version.py` already uses, avoiding a new Python dependency
+(the `cryptography` package) for one field. Needs `openssl` on PATH.
+
+**Verified live, not just unit-tested**: both paths tested against a
+real `openssl`-generated self-signed certificate -- a real local TLS
+server (Python's own `ssl` module, bound to `127.0.0.1`) for the live-
+handshake path, and the generated PEM file directly for the file path.
+Per-target failure isolation confirmed the same way: a deliberately
+unreachable host (`127.0.0.1:1`, nothing listens there) alongside a
+real good file target in one `collect()` call correctly reports
+`{name}_check_failed=1.0` for the bad one and a real
+`{name}_days_until_expiry` for the good one, matching the same
+error-isolation discipline `CollectorRegistry` already applies at the
+collector level, now applied *within* a single collector across its
+own multiple targets. Thresholds: `stress` under 30 days, `critical`
+under 7 (matching the common real-world renewal-reminder cadence --
+Let's Encrypt's own reminders start at 30/20/10/1 days -- provisional,
+not measured against this specific deployment's actual renewal lead
+time). An already-expired cert reports a real negative day-count
+rather than erroring, since that's a meaningful value, not a failure.
 
 ## Verified (real, not simulated)
 

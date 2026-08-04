@@ -3,6 +3,7 @@ from .disk import DiskHealthCollector
 from .network import NetworkHealthCollector, load_baseline_ports
 from .system import SystemHealthCollector
 from .software_version import SoftwareVersionCollector
+from .cert_expiry import CertExpiryCollector
 from .packet_capture import PacketCaptureCollector, PacketCaptureUnavailable, discover_real_ifaces
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "load_baseline_ports",
     "SystemHealthCollector",
     "SoftwareVersionCollector",
+    "CertExpiryCollector",
     "PacketCaptureCollector",
     "PacketCaptureUnavailable",
     "discover_real_ifaces",

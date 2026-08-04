@@ -31,6 +31,7 @@ from collectors import (
     NetworkHealthCollector,
     SystemHealthCollector,
     SoftwareVersionCollector,
+    CertExpiryCollector,
     PacketCaptureCollector,
     PacketCaptureUnavailable,
     load_baseline_ports,
@@ -47,6 +48,7 @@ from retention import RetentionManager, DEFAULT_RETENTION_DAYS
 BASE_DIR = os.path.dirname(__file__)
 DEFAULT_BASELINE_PATH = os.path.join(BASE_DIR, "config", "network_baseline.json")
 DEFAULT_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "software_versions.json")
+DEFAULT_CERT_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "cert_targets.json")
 DEFAULT_ALERTING_PATH = os.path.join(BASE_DIR, "config", "alerting.json")
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "server_guard.db")
 DEFAULT_LOG_PATH = os.path.join(BASE_DIR, "logs", "server_guard.log")
@@ -68,6 +70,8 @@ def build_registry(learn_baseline: bool, demo_workflow: bool = False) -> Collect
     registry.register(SystemHealthCollector())
     if os.path.exists(DEFAULT_MANIFEST_PATH):
         registry.register(SoftwareVersionCollector(manifest_path=DEFAULT_MANIFEST_PATH))
+    if os.path.exists(DEFAULT_CERT_MANIFEST_PATH):
+        registry.register(CertExpiryCollector(manifest_path=DEFAULT_CERT_MANIFEST_PATH))
 
     # SYNTHETIC demo data, off by default -- never register this in a
     # real deployment. Gated by an explicit flag specifically so fake

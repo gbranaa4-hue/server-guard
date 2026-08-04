@@ -16,3 +16,7 @@ demo_workflow_test.db-wal
 demo_workflow_test.db-shm
 demo_forecast_report.md
 forecast_report.md
+logs/
+test_run.db
+test_run.db-wal
+test_run.db-shm

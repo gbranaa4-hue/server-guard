@@ -374,6 +374,42 @@ the specific numbers displayed weren't trustworthy yet. Real takeaway:
 behind them before the numbers themselves should be trusted, even though
 the detector's relative ranking can be reliable sooner.
 
+## Reliability: crash recovery, log rotation, real retention
+
+Before this, it was one Python process with no supervision, unbounded
+`print()` output, and readings/predictions that would grow forever
+(~450k rows/day in readings alone at the default interval across ~25
+channels -- a real disk-growth problem over weeks, not hypothetical).
+
+- **`supervisor.py`** -- launches `guard.py` as a subprocess and
+  restarts it on an unexpected exit, with exponential backoff (2s, 4s,
+  8s...) and crash-loop protection (gives up after 5 failures in 60s
+  rather than looping forever). Registering an actual Windows Scheduled
+  Task for this was tried and hit a real, confirmed Access Denied wall
+  on this account (both `Register-ScheduledTask` and `schtasks.exe`), so
+  supervision had to move entirely into user-space instead of relying on
+  the OS. **Verified live**, not just by reading the code: pointed it at
+  a script that deliberately crashes and confirmed it restarted with the
+  correct backoff schedule each time, then gave up cleanly after exactly
+  5 failures; separately confirmed it does *not* restart a clean (exit
+  0) run.
+- **`logging_setup.py`** -- replaces raw `print()` with a rotating file
+  handler (10MB x 5 backups, ~60MB ceiling instead of unbounded) plus
+  console output, configured inside `run()` rather than at import time
+  so other scripts that import `guard.py`'s functions don't get a
+  surprise log file created just from importing it. Verified real
+  rotation triggers (forced a tiny `maxBytes` and confirmed `.log`,
+  `.log.1`, `.log.2` all actually got created).
+- **`retention.py`** -- deletes `readings`/`predictions` rows older than
+  a configurable window (default 30 days), checked once per hour of
+  real uptime rather than every tick, since a DELETE is real overhead a
+  5-second loop shouldn't pay every single cycle for. Regression-tested
+  for both the deletion boundary and the check-interval throttle.
+
+```bash
+python supervisor.py -- --interval 5 --retention-days 30   # recommended for continuous operation
+```
+
 ## Usage
 
 ```bash

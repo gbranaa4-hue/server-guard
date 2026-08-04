@@ -39,12 +39,23 @@ from collectors.workflow_demo import WorkflowDemoCollector
 from config.thresholds_config import build_thresholds
 from alerting import AlertStateTracker
 from alerting.config_loader import load_notifiers, load_min_renotify_interval
+import logging
+from logging_setup import setup_logging
+from retention import RetentionManager, DEFAULT_RETENTION_DAYS
 
 BASE_DIR = os.path.dirname(__file__)
 DEFAULT_BASELINE_PATH = os.path.join(BASE_DIR, "config", "network_baseline.json")
 DEFAULT_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "software_versions.json")
 DEFAULT_ALERTING_PATH = os.path.join(BASE_DIR, "config", "alerting.json")
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "server_guard.db")
+DEFAULT_LOG_PATH = os.path.join(BASE_DIR, "logs", "server_guard.log")
+
+# Module-level logger reference only -- handlers (and the file this
+# writes to) are configured inside run(), NOT at import time, so
+# scripts that import build_registry() etc. (generate_report.py,
+# baseline_measure.py, generate_grafana_dashboard.py) don't get a
+# surprise log file created just from importing this module.
+logger = logging.getLogger("server-guard")
 
 
 def build_registry(learn_baseline: bool, demo_workflow: bool = False) -> CollectorRegistry:
@@ -73,7 +84,7 @@ def build_registry(learn_baseline: bool, demo_workflow: bool = False) -> Collect
             known_listening_ports=load_baseline_ports(DEFAULT_BASELINE_PATH)
         ))
     except PacketCaptureUnavailable as exc:
-        print(f"[server-guard] packet capture unavailable, skipping: {exc}")
+        logger.warning(f"packet capture unavailable, skipping: {exc}")
 
     return registry
 
@@ -93,9 +104,12 @@ def _ensure_wal_mode(db_path: str) -> None:
 
 
 def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 0,
-        demo_workflow: bool = False) -> None:
+        demo_workflow: bool = False, log_path: str = DEFAULT_LOG_PATH,
+        retention_days: float = DEFAULT_RETENTION_DAYS) -> None:
+    setup_logging(log_path)  # configured here, not at import, so this file can be imported side-effect-free
     _ensure_wal_mode(db_path)
     registry = build_registry(learn_baseline, demo_workflow=demo_workflow)
+    retention = RetentionManager(db_path, retention_days=retention_days) if retention_days else None
 
     # One warm-up tick to discover real channel names before wiring detectors --
     # channel set depends on which mounts/software-manifest entries exist on
@@ -112,12 +126,14 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
         min_renotify_interval_s=load_min_renotify_interval(DEFAULT_ALERTING_PATH)
     )
     if notifiers.names:
-        print(f"[server-guard] alert notifiers active: {notifiers.names}")
+        logger.info(f"alert notifiers active: {notifiers.names}")
 
-    print(f"[server-guard] channels: {sorted(thresholds.keys())}")
+    logger.info(f"channels: {sorted(thresholds.keys())}")
     if learn_baseline:
-        print("[server-guard] learning network baseline this run -- "
-              "listening ports seen now are being recorded as expected.")
+        logger.info("learning network baseline this run -- "
+                     "listening ports seen now are being recorded as expected.")
+    if retention:
+        logger.info(f"data retention: {retention_days} days, checked hourly")
 
     tick = 0
     try:
@@ -135,8 +151,8 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
                     alerted = pred.status in ("stress", "critical")
                     store.log_prediction(now, pred, alerted, detector_name)
                     if alerted:
-                        print(f"[{detector_name}] {pred.status.upper()} {pred.channel}="
-                              f"{pred.current_value} {pred.explanation}")
+                        logger.warning(f"[{detector_name}] {pred.status.upper()} {pred.channel}="
+                                        f"{pred.current_value} {pred.explanation}")
 
                     transition = alert_tracker.check(detector_name, pred.channel, pred.status)
                     if transition and notifiers.names:
@@ -146,17 +162,22 @@ def run(interval_s: float, db_path: str, learn_baseline: bool, max_ticks: int = 
                             severity=pred.status,
                         )
                         for err in notifiers.last_errors:
-                            print(f"[server-guard] notifier '{err.notifier_name}' failed: {err.error}")
+                            logger.error(f"notifier '{err.notifier_name}' failed: {err.error}")
 
             for err in registry.last_errors:
-                print(f"[server-guard] collector '{err.collector_name}' failed: {err.error}")
+                logger.error(f"collector '{err.collector_name}' failed: {err.error}")
+
+            if retention:
+                deleted = retention.maybe_clean(now)
+                if deleted:
+                    logger.info(f"retention cleanup: deleted {deleted} rows older than {retention_days} days")
 
             tick += 1
             if max_ticks and tick >= max_ticks:
                 break
             time.sleep(interval_s)
     except KeyboardInterrupt:
-        print("\n[server-guard] stopping.")
+        logger.info("stopping (Ctrl+C).")
     finally:
         store.close()
 
@@ -171,5 +192,10 @@ if __name__ == "__main__":
     parser.add_argument("--demo-workflow", action="store_true",
                          help="register the SYNTHETIC workflow-bottleneck demo collector "
                               "(off by default -- never use in a real deployment)")
+    parser.add_argument("--log", type=str, default=DEFAULT_LOG_PATH,
+                         help="rotating log file path (10MB x 5 backups)")
+    parser.add_argument("--retention-days", type=float, default=DEFAULT_RETENTION_DAYS,
+                         help="delete readings/predictions older than this many days; 0 disables cleanup")
     args = parser.parse_args()
-    run(args.interval, args.db, args.learn_baseline, args.max_ticks, demo_workflow=args.demo_workflow)
+    run(args.interval, args.db, args.learn_baseline, args.max_ticks, demo_workflow=args.demo_workflow,
+        log_path=args.log, retention_days=args.retention_days)

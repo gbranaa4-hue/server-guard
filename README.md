@@ -559,6 +559,33 @@ not just individual pieces:
    same class of bug too -- confirmed clean: a real failed SMTP auth
    attempt returns a generic server message, never echoes the password.
 
+### Cross-metric alert correlation
+
+Every channel was analyzed and notified about independently -- a CPU
+spike and a disk I/O spike happening at the exact same real moment fired
+as two unrelated alerts instead of one likely root cause, something real
+observability platforms (Datadog's alert grouping, PagerDuty) do as a
+matter of course. `alerting/correlation.py`'s `build_notification()`
+groups transitions that fire within the SAME guard.py tick into one
+combined notification (using the worst status among them as the overall
+severity), scoped honestly: this is same-tick simultaneity, not a longer
+multi-tick causal window, which would need a stateful buffer and a real
+judgment call about how wide "likely related" should be -- not built.
+
+**Verification status, stated honestly**: unit-tested for the grouping/
+severity logic. Fed real `TransitionEvent` data through the actual
+`build_notification()` function used in production and confirmed the
+real output (title `"2 channels transitioned together (likely one root
+cause)"`, both channels correctly listed, `critical` correctly chosen as
+the worse of the two statuses) -- but couldn't complete a live HTTP
+delivery proof this time: `ntfy.sh` started rate-limiting this machine's
+IP (`HTTP 429`, confirmed even against a brand-new topic, so it's
+IP-based, not topic-based) after the day's cumulative volume of test
+notifications. That's an external service limit, not a defect in this
+code -- and the real secret-redaction fix (see above) is visible working
+correctly even inside that failure (`https://ntfy.sh/[redacted]` in the
+real error, not the actual URL).
+
 ## Workflow bottleneck detection + forecast reports
 
 No new detection engine -- `workflow/identify_bottleneck()` just ranks

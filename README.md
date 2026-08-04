@@ -131,6 +131,49 @@ ambient traffic (this machine's real outbound HTTPS connections) and
 confirming SYNs were parsed and the direction filter correctly
 suppressed them as non-scans.
 
+## Attack-realism testing against a genuinely separate network origin
+
+Every earlier test used same-machine traffic. That's a real methodology
+limit, not just a formality: a scan targeting this same host from
+*itself* never happened here, and Windows short-circuits same-machine
+connections around the physical NIC anyway (see above), so it wasn't
+even possible to test that way. WSL2 provided a genuinely separate
+network namespace (its own IP, crossing a real Hyper-V virtual switch
+boundary) to launch real scans from -- confirmed visible to Npcap before
+trusting any result from it.
+
+Since raw SYN packets need root (unavailable in WSL here), the real test
+used a TCP-connect scan -- exactly nmap's `-sT` technique, not a
+workaround, since every real TCP handshake starts with a genuine SYN on
+the wire regardless of whether the connection completes.
+
+- **Fast 15-port scan** (all ports probed in <1s from one source):
+  caught completely -- `unexpected_port_probes=15`,
+  `scanning_src_ips=1`, matching exactly.
+- **Slow scan** (1 port probed every ~2s across separate collection
+  windows, simulating guard.py's real tick boundaries): **also caught
+  completely, 5/5**, with zero blind spot -- unlike the socket-polling
+  tripwire's proven poll-interval gap, continuous packet capture doesn't
+  miss anything that happens between ticks. This is a genuine point of
+  parity with real IDS scan-detection, not an assumption.
+
+**A real reliability finding, and a fix that was tried and reverted
+after measuring it made things worse**: watching every real interface
+automatically (9 on this dev machine, most of them VPN/tunnel/virtual-
+switch noise) was tried as a fix for a genuine gap -- the packet
+collector's single default interface would silently miss traffic on any
+other adapter. But it measurably *degraded* reliability: the same
+single-probe slow scan that was caught 5/5 times on one targeted
+interface was caught only 1/5 times watching all 9 simultaneously
+(`syn_packets` was 0 on the misses -- packets were actually dropped, not
+misattributed). Watching a small, curated set of 2 interfaces restored
+5/5. So the fix was reverted: the default stays scapy's single reliable
+`conf.iface` pick; `collectors.discover_real_ifaces()` lists what's
+available, and a genuinely multi-homed deployment should pass an
+explicit short list via `PacketCaptureCollector(iface=[...])` rather
+than relying on automatic discovery. Regression tests for both the
+default and the explicit-list path: `tests/test_packet_capture.py`.
+
 ## Offline-by-design software version tracking
 
 `collectors/software_version.py` deliberately does **not** call out to

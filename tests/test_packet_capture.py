@@ -59,9 +59,34 @@ def test_non_syn_packet_is_ignored():
     assert c._scan_src_ips == set()
 
 
+def test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list():
+    """Regression for a real measured reliability finding: watching every
+    auto-discovered interface (9 on the dev machine this was tested on)
+    dropped single-probe scan packets 4/5 times; a single targeted
+    interface caught 5/5. So the default must stay None (scapy's own
+    conf.iface), NOT an automatically-expanded list -- multi-interface
+    coverage is opt-in via an explicit iface= list, not automatic."""
+    c = PacketCaptureCollector(known_listening_ports=set())
+    try:
+        assert c._iface is None
+    finally:
+        c.close()
+
+
+def test_explicit_iface_list_is_honored_unchanged():
+    explicit = ["Ethernet", "vEthernet (WSL (Hyper-V firewall))"]
+    c = PacketCaptureCollector(known_listening_ports=set(), iface=explicit)
+    try:
+        assert c._iface == explicit
+    finally:
+        c.close()
+
+
 if __name__ == "__main__":
     test_outbound_syn_to_unlistened_remote_port_is_not_a_scan()
     test_inbound_syn_to_unlistened_port_is_a_scan()
     test_inbound_syn_to_a_baselined_port_is_not_flagged()
     test_non_syn_packet_is_ignored()
+    test_default_iface_is_scapys_single_reliable_pick_not_auto_discovered_list()
+    test_explicit_iface_list_is_honored_unchanged()
     print("all tests passed")

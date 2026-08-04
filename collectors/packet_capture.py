@@ -31,11 +31,12 @@ What it adds that polling structurally cannot:
 from __future__ import annotations
 
 import threading
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set, Union
 
 try:
     from scapy.all import sniff, TCP, IP
     from scapy.error import Scapy_Exception
+    from scapy.arch.windows import get_windows_if_list
     SCAPY_AVAILABLE = True
 except ImportError:
     SCAPY_AVAILABLE = False
@@ -52,6 +53,34 @@ def _local_ips() -> Set[str]:
     return ips
 
 
+def discover_real_ifaces() -> List[str]:
+    """Lists real interfaces (has an actual IPv4, excluding Windows'
+    long tail of zero-IP filter/shim pseudo-adapters -- WFP Native MAC
+    Layer LightWeight Filter, QoS Packet Scheduler, the Npcap driver
+    binding itself as its own "interface"). NOT used as the automatic
+    default -- see the real reliability finding below -- this exists so
+    an operator can call it to see what's available and explicitly
+    choose which ones matter for their deployment.
+
+    Real finding from testing this against an actual multi-port scan:
+    watching every discovered interface (9 on this dev machine, most of
+    them irrelevant VPN/tunnel/virtual-switch noise) measurably degraded
+    single-packet capture reliability -- a slow scan that was caught
+    5/5 times on one targeted interface was only caught 1/5 times
+    watching all 9 simultaneously (syn_packets was 0 on the misses --
+    packets were dropped, not misattributed). Watching a small, curated
+    set of 2 real interfaces restored 5/5 reliability. So: the default
+    stays scapy's single conf.iface pick (proven reliable); a real
+    multi-homed deployment should pass an explicit short list of the
+    actual interfaces that matter, not "everything this function finds."
+    """
+    ifaces = []
+    for i in get_windows_if_list():
+        if i.get("ips") and any("." in ip for ip in i["ips"]):  # has a real IPv4, not just link-local IPv6
+            ifaces.append(i["name"])
+    return ifaces
+
+
 class PacketCaptureUnavailable(Exception):
     pass
 
@@ -59,7 +88,8 @@ class PacketCaptureUnavailable(Exception):
 class PacketCaptureCollector:
     name = "pkt"
 
-    def __init__(self, known_listening_ports: Optional[Set[int]] = None, iface: Optional[str] = None):
+    def __init__(self, known_listening_ports: Optional[Set[int]] = None,
+                 iface: Optional[Union[str, List[str]]] = None):
         if not SCAPY_AVAILABLE:
             raise PacketCaptureUnavailable("scapy is not installed (pip install scapy)")
 
@@ -72,6 +102,11 @@ class PacketCaptureCollector:
         # of this host's own IPs is actually an inbound connection
         # attempt worth evaluating against the listening-port baseline.
         self._local_ips = _local_ips()
+        # Default stays scapy's single conf.iface pick -- see
+        # discover_real_ifaces()'s docstring for why watching every
+        # interface automatically was tried and reverted (a real,
+        # measured reliability cost, not a hypothetical one). A real
+        # multi-homed deployment should pass an explicit short list here.
         self._iface = iface
         self._lock = threading.Lock()
         self._syn_count = 0

@@ -104,12 +104,44 @@ RULES: List[Tuple[str, Range]] = [
     (r"_matches_known_latest$", Range(critical_low=0.5)),
     (r"_baseline_age_days$", Range(stress_high=90, critical_high=180)),
     (r"_check_failed$", Range(stress_high=0.5)),
+    # File Integrity Monitoring (collectors/file_integrity.py): a watched
+    # file's hash no longer matching its persisted baseline. Same
+    # zero-tolerance shape as the other boolean tripwires above (a
+    # watched file is either unchanged or it isn't -- no graded
+    # "stress" band makes sense here).
+    (r"_changed$", Range(critical_high=0.5)),
+    # Windows Defender threat detections (collectors/defender_threats.py):
+    # added directly from a real incident on this machine (2026-08-04, a
+    # keygen + two trojans) that the network-anomaly channels only caught
+    # as ambiguous noise -- a human had to manually cross-reference
+    # timestamps against Get-MpThreatDetection to actually confirm what
+    # happened. Same zero-tolerance shape as the other boolean/count
+    # tripwires: any new detection, or any currently-active high-severity
+    # threat, is worth an immediate unambiguous alert, no "stress" band.
+    (r"^defender\.new_detections$", Range(critical_high=0.5)),
+    (r"^defender\.active_high_severity_threats$", Range(critical_high=0.5)),
     # Certificate expiry: lower is worse, same shape as disk free-space
     # tripwires above. 30/7-day bands match the common real-world
     # renewal-reminder cadence (Let's Encrypt's own reminders start at
     # 30/20/10/1 days) -- provisional, not measured against this specific
     # deployment's actual renewal process/lead time.
     (r"^cert\..*_days_until_expiry$", Range(critical_low=7, stress_low=30)),
+    # Backup verification: a backup job that silently stopped running.
+    # Generic default assumes a roughly-nightly cadence (the common
+    # case) -- a target with a genuinely different real cadence (weekly,
+    # monthly) will false-alarm against this default and needs its own
+    # specific override placed ABOVE this line (first match wins), e.g.
+    # `r"^backup\.imaging-server-weekly_hours_since_last_backup$"` --
+    # see config/backup_targets.example.json for a worked example.
+    # Deliberately no matching default for `_last_backup_size_bytes$`:
+    # real expected sizes span orders of magnitude target-to-target (a
+    # config export vs. a full DB dump vs. a VM image), so any single
+    # global number here would be actively misleading rather than just
+    # imprecise -- that channel is collected/trended either way, just
+    # not classified until the operator adds a real per-target rule.
+    # Provisional, not measured against a real deployment's actual
+    # backup schedule.
+    (r"_hours_since_last_backup$", Range(stress_high=30, critical_high=48)),
     # Physical-disk predictive-failure flag (1=healthy, 0=not) -- same
     # zero-tolerance shape as _matches_known_latest$. No "stress" band:
     # Windows' own health rollup doesn't expose a graded warning state

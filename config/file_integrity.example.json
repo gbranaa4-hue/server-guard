@@ -1,0 +1,9 @@
+{
+  "_comment": "Basic File Integrity Monitoring (FIM). Copy this to config/file_integrity.json and point at real, individually-named files this deployment's operator does NOT expect to change between deploys -- this collector is skipped entirely if that file doesn't exist. v1 is files-only (no directories) and has no allowlist/content-aware diffing -- do NOT add anything that changes routinely (logs, WAL files, anything with a rotating timestamp in it) or it will false-alarm on every run. See collectors/file_integrity.py's module docstring for the full disclosed scope.",
+
+  "files": [
+    {"_note": "classic FIM target -- malware/tampering commonly rewrites this to redirect a hostname to an attacker-controlled IP", "name": "hosts-file", "path": "C:\\Windows\\System32\\drivers\\etc\\hosts"},
+    {"_note": "this project's own webhook config -- a webhook URL is bearer-token-like, so an unnoticed edit here could silently redirect real alerts to an attacker-controlled endpoint", "name": "alerting-config", "path": "C:\\path\\to\\server-guard\\config\\alerting.json"},
+    {"_note": "a critical, rarely-edited application config directory would go here ONE FILE AT A TIME (v1 doesn't watch whole directories) -- e.g. the main config file of a practice-management app", "name": "app-main-config", "path": "C:\\path\\to\\some-app\\config\\main.conf"}
+  ]
+}

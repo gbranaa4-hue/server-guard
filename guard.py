@@ -37,6 +37,9 @@ from collectors import (
     PacketCaptureCollector,
     PacketCaptureUnavailable,
     load_baseline_ports,
+    FileIntegrityCollector,
+    BackupVerificationCollector,
+    DefenderThreatsCollector,
 )
 from collectors.workflow_demo import WorkflowDemoCollector
 from config.thresholds_config import build_thresholds
@@ -51,6 +54,8 @@ BASE_DIR = os.path.dirname(__file__)
 DEFAULT_BASELINE_PATH = os.path.join(BASE_DIR, "config", "network_baseline.json")
 DEFAULT_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "software_versions.json")
 DEFAULT_CERT_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "cert_targets.json")
+DEFAULT_FIM_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "file_integrity.json")
+DEFAULT_BACKUP_MANIFEST_PATH = os.path.join(BASE_DIR, "config", "backup_targets.json")
 DEFAULT_ALERTING_PATH = os.path.join(BASE_DIR, "config", "alerting.json")
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "server_guard.db")
 DEFAULT_LOG_PATH = os.path.join(BASE_DIR, "logs", "server_guard.log")
@@ -72,10 +77,18 @@ def build_registry(learn_baseline: bool, demo_workflow: bool = False) -> Collect
         NetworkHealthCollector(baseline_path=DEFAULT_BASELINE_PATH, learn_baseline=learn_baseline)
     )
     registry.register(SystemHealthCollector())
+    # No manifest/config file to gate on -- Get-MpThreatDetection/Get-MpThreat
+    # are always-available Windows Defender cmdlets, unlike the file-based
+    # collectors below which need an operator-provided target list first.
+    registry.register(DefenderThreatsCollector())
     if os.path.exists(DEFAULT_MANIFEST_PATH):
         registry.register(SoftwareVersionCollector(manifest_path=DEFAULT_MANIFEST_PATH))
     if os.path.exists(DEFAULT_CERT_MANIFEST_PATH):
         registry.register(CertExpiryCollector(manifest_path=DEFAULT_CERT_MANIFEST_PATH))
+    if os.path.exists(DEFAULT_FIM_MANIFEST_PATH):
+        registry.register(FileIntegrityCollector(manifest_path=DEFAULT_FIM_MANIFEST_PATH))
+    if os.path.exists(DEFAULT_BACKUP_MANIFEST_PATH):
+        registry.register(BackupVerificationCollector(manifest_path=DEFAULT_BACKUP_MANIFEST_PATH))
 
     # SYNTHETIC demo data, off by default -- never register this in a
     # real deployment. Gated by an explicit flag specifically so fake

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>server-guard — offline server health + intrusion monitor, $0 forever</title>
+<meta name="description" content="A modular, fully offline server health and intrusion-signal monitor. No agent phoning home, no listening ports added, no subscription. Honest benchmark against Datadog, Wazuh, PagerDuty, and Netdata included." />
+<style>
+  :root {
+    --paper: #F1EFE7; --paper-raised: #E8E4D8; --ink: #1C1E1A; --ink-soft: #4A4A42;
+    --muted: #8B8577; --line: #D8D3C4; --accent: #3E7269; --good: #3E7269; --bad: #A0522D;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #15181A; --paper-raised: #1D2123; --ink: #E8E6DE; --ink-soft: #B8B4A6;
+      --muted: #7A7668; --line: #2C3032; --accent: #6FAB9E; --good: #6FAB9E; --bad: #C97B54;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #15181A; --paper-raised: #1D2123; --ink: #E8E6DE; --ink-soft: #B8B4A6;
+    --muted: #7A7668; --line: #2C3032; --accent: #6FAB9E; --good: #6FAB9E; --bad: #C97B54;
+  }
+  :root[data-theme="light"] {
+    --paper: #F1EFE7; --paper-raised: #E8E4D8; --ink: #1C1E1A; --ink-soft: #4A4A42;
+    --muted: #8B8577; --line: #D8D3C4; --accent: #3E7269; --good: #3E7269; --bad: #A0522D;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: Optima, Candara, "Noto Sans", "Segoe UI", sans-serif;
+    font-size: 17px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .display { font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif; text-wrap: balance; }
+  .mono { font-family: ui-monospace, "SF Mono", Consolas, "Roboto Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  a { color: var(--accent); }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 28px; }
+  header.hero { padding: 88px 0 64px; border-bottom: 1px solid var(--line); }
+  .eyebrow { display: flex; align-items: center; gap: 10px; text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px; color: var(--muted); margin-bottom: 28px; }
+  h1.display { font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 400; line-height: 1.1; margin: 0 0 22px; letter-spacing: -0.01em; }
+  h1.display em { font-style: italic; color: var(--accent); }
+  .lede { max-width: 62ch; font-size: 1.13rem; color: var(--ink-soft); margin: 0 0 36px; }
+  .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 12px 22px; border-radius: 3px; text-decoration: none; font-size: 0.95rem; border: 1px solid var(--ink); }
+  .btn-solid { background: var(--ink); color: var(--paper); }
+  .btn-line { color: var(--ink); border-color: var(--line); }
+  section { padding: 56px 0; border-bottom: 1px solid var(--line); }
+  .kicker { text-transform: uppercase; letter-spacing: 0.12em; font-size: 12px; color: var(--muted); margin: 0 0 14px; }
+  h2.display { font-size: 1.6rem; font-weight: 400; margin: 0 0 18px; }
+  p { max-width: 68ch; }
+  p.body-copy { color: var(--ink-soft); }
+  table.datasheet { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 0.86rem; }
+  table.datasheet th { text-align: left; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; color: var(--muted); font-weight: 400; padding: 0 10px 10px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.datasheet td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.datasheet tr:last-child td { border-bottom: none; }
+  .overflow-x { overflow-x: auto; }
+  .note { font-size: 0.88rem; color: var(--muted); margin-top: 18px; padding: 14px 16px; border-left: 2px solid var(--accent); background: var(--paper-raised); }
+  .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-top: 24px; }
+  .catalog div { background: var(--paper); padding: 16px 18px; }
+  .catalog .label { font-weight: 500; font-size: 0.95rem; margin-bottom: 4px; }
+  .catalog .desc { color: var(--muted); font-size: 0.85rem; }
+  .terminal { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 4px; padding: 22px 24px; margin-top: 24px; overflow-x: auto; }
+  .terminal .line { white-space: pre; font-size: 0.88rem; }
+  .terminal .comment { color: var(--muted); }
+  .terminal .prompt { color: var(--accent); }
+  .verdict-good { color: var(--good); }
+  .verdict-bad { color: var(--bad); }
+  footer { padding: 56px 0 88px; }
+  footer .wrap { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 24px; }
+  footer .foot-note { color: var(--muted); font-size: 0.85rem; max-width: 46ch; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">server-guard</div>
+    <h1 class="display">Offline server monitoring,<br /><em>$0 forever, by design.</em></h1>
+    <p class="lede">
+      A modular server health and intrusion-signal monitor for the
+      single-server / small-office case Datadog and Wazuh-cloud don't
+      actually price for. No agent phoning out to a third party, zero
+      new listening ports added to the host, no subscription — that's a
+      real, disclosed architectural tradeoff, not a missing feature.
+      Currently running live on its own build machine, real data since
+      day one.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-solid" href="#benchmark">See the honest benchmark</a>
+      <a class="btn btn-line" href="#install">Install</a>
+      <a class="btn btn-line" href="https://github.com/gbranaa4-hue/server-guard">Source →</a>
+    </div>
+  </div>
+</header>
+
+<section id="positioning">
+  <div class="wrap">
+    <p class="kicker">Who this is actually for</p>
+    <h2 class="display">A real, currently-underserved niche.</h2>
+    <p class="body-copy">
+      A single server or small handful of machines — a reception PC, a
+      file server, a lab server — run by someone who wants real
+      intrusion-style detection and paged alerts, without an agent
+      phoning out to a third party and without a recurring bill. Willing
+      to accept provisional thresholds that improve as real data comes
+      in, in exchange for owning the whole stack. That sits between
+      "nothing" and "pay Datadog or Wazuh-cloud money for infrastructure
+      you don't have."
+    </p>
+    <p class="body-copy">
+      It is <em>not</em> the right answer for a real multi-team on-call
+      rotation (use PagerDuty), a compliance-driven security program
+      (use Wazuh or a commercial XDR), or fleet-scale infrastructure
+      (use Datadog or Netdata Cloud) — said directly, not glossed over.
+    </p>
+  </div>
+</section>
+
+<section id="benchmark">
+  <div class="wrap">
+    <p class="kicker">Measured, not asserted</p>
+    <h2 class="display">Every "Verified" below was tested live, not assumed.</h2>
+    <p class="body-copy">
+      Comparison axes were fixed before researching competitor pricing,
+      so this isn't reverse-engineered to flatter server-guard.
+      Competitor numbers are sourced from a live 2026 web search, linked
+      in the repo. Where a server-guard claim isn't yet backed by real
+      production traffic, it's marked provisional — not hidden.
+    </p>
+    <div class="overflow-x">
+      <table class="datasheet">
+        <thead>
+          <tr><th>Axis</th><th>server-guard</th><th>Datadog</th><th>Wazuh (OSS)</th><th>PagerDuty</th><th>Netdata OSS</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Cost, 1–5 hosts/mo</td>
+            <td class="verdict-good mono">$0 — no paid tier exists</td>
+            <td>Free ≤5 hosts, 1-day retention; else $15/host/mo</td>
+            <td>$0 self-hosted; managed cloud ~$571/mo</td>
+            <td>Free ≤5 responders; else $21–41/user/mo</td>
+            <td>Free ≤5 nodes; else $4.50/node/mo</td>
+          </tr>
+          <tr>
+            <td>Attack surface added</td>
+            <td class="verdict-good mono">Zero new listening ports</td>
+            <td>Agent phones home (outbound)</td>
+            <td>Agent + server + indexer (inbound)</td>
+            <td>N/A, no host agent</td>
+            <td>Agent, optional dashboard port</td>
+          </tr>
+          <tr>
+            <td>Intrusion detection</td>
+            <td class="verdict-good">Verified: brute-force, stealth scans, cleartext creds, C2 beacons, Defender log integration</td>
+            <td>Not core — separate Cloud SIEM</td>
+            <td class="verdict-bad">Deeper — this is Wazuh's actual purpose</td>
+            <td>None — alerting only</td>
+            <td>None — metrics only</td>
+          </tr>
+          <tr>
+            <td>Setup</td>
+            <td class="verdict-good mono">pip install + 2 commands</td>
+            <td>SaaS signup + agent, ~minutes</td>
+            <td class="verdict-bad">Heaviest — 3-component stack</td>
+            <td>SaaS signup</td>
+            <td>Single agent install</td>
+          </tr>
+          <tr>
+            <td>Who's behind it</td>
+            <td>One person, disclosed as such, thresholds marked provisional</td>
+            <td>Public company, dedicated SOC</td>
+            <td>Large OSS project + a company</td>
+            <td>Public company</td>
+            <td>Company + OSS community</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      Full table (retention, alerting maturity, crash recovery, fleet
+      capability, boot persistence) and every source link is in the
+      repo's <a href="https://github.com/gbranaa4-hue/server-guard/blob/main/BENCHMARK.md">BENCHMARK.md</a>.
+      Real gap, not smoothed over: boot/login persistence isn't solved
+      yet on Windows (a real, reproduced Access Denied on Task
+      Scheduler registration) — a Startup-folder shortcut is the working
+      fallback.
+    </p>
+  </div>
+</section>
+
+<section id="catches">
+  <div class="wrap">
+    <p class="kicker">What it actually catches</p>
+    <h2 class="display">Real detection, real alerting, real recovery.</h2>
+    <div class="catalog">
+      <div><div class="label">Brute-force / credential-stuffing</div><div class="desc">Verified against real live traffic</div></div>
+      <div><div class="label">Stealth scans (NULL/FIN/XMAS)</div><div class="desc">Tested against a genuinely separate network origin</div></div>
+      <div><div class="label">Cleartext credentials in transit</div><div class="desc">Live-verified detection</div></div>
+      <div><div class="label">Outbound C2-beacon candidates</div><div class="desc">Real jitter/CV-based signal, recalibrated for realistic beacon behavior</div></div>
+      <div><div class="label">Windows Defender log integration</div><div class="desc">Real threat-detection events surfaced, not duplicated</div></div>
+      <div><div class="label">TLS certificate expiry</div><div class="desc">Server-hygiene monitoring</div></div>
+      <div><div class="label">Physical disk reliability</div><div class="desc">Predictive-failure signal</div></div>
+      <div><div class="label">Windows Event Log errors</div><div class="desc">System/Application error events</div></div>
+      <div><div class="label">Crash + hang recovery</div><div class="desc">supervisor.py (backoff + crash-loop cutoff) + heartbeat_watchdog.py, tested against real crashing/hanging subprocesses</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <p class="kicker">Install</p>
+    <h2 class="display">pip install, two commands, no infra to stand up.</h2>
+    <div class="terminal mono">
+      <div class="line"><span class="comment"># clone and install</span></div>
+      <div class="line"><span class="prompt">$</span> git clone https://github.com/gbranaa4-hue/server-guard.git</div>
+      <div class="line"><span class="prompt">$</span> cd server-guard</div>
+      <div class="line"><span class="prompt">$</span> pip install -r requirements.txt</div>
+      <div class="line">&nbsp;</div>
+      <div class="line"><span class="comment"># first run</span></div>
+      <div class="line"><span class="prompt">$</span> python guard.py</div>
+    </div>
+    <p class="body-copy" style="margin-top:20px;">
+      Full walkthrough (Grafana HUD setup, alerting webhooks, multi-host
+      aggregation) in <a href="https://github.com/gbranaa4-hue/server-guard/blob/main/QUICKSTART.md">QUICKSTART.md</a>.
+      A one-command Windows installer (<span class="mono">install.ps1</span>)
+      is also in the repo.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="eyebrow" style="margin-bottom:10px;">server-guard</div>
+      <a class="btn btn-solid" href="https://github.com/gbranaa4-hue/server-guard">View on GitHub</a>
+    </div>
+    <p class="foot-note">Offline, fully local server health and intrusion monitoring. Every claim on this page traces to a real test in the repo's own README, not a projection.</p>
+  </div>
+</footer>
+
+</body>
+</html>
